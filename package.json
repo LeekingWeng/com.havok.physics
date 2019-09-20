@@ -1,0 +1,22 @@
+{
+  "displayName": "Havok Physics",
+  "category": "Havok",
+  "author": "Microsoft",
+  "description": "Havok's award winning physics engine, applied to the DOTS framework. This augments the Unity.Physics package, allowing physics scenes authored for DOTS to be simulated using the Havok Physics engine.\n\nPLEASE NOTE: This is a trial version, which expires on January 15th 2020.\n\nAfter the trial period, the native plugins will no longer function in the editor. If you want to continue using Havok Physics after the trial period, you will have to upgrade to a newer version of this package when it becomes available.\n\nHavok Physics will continue to be free to use for Unity Personal and Unity Plus users after the trial period has ended. Unity Pro users will have to purchase a Havok subscription from the Unity Asset Store. For more details on licensing, please see the package documentation.",
+  "dependencies": {
+    "com.unity.physics": "0.2.4-preview"
+  },
+  "keywords": [
+    "havok",
+    "physics"
+  ],
+  "name": "com.havok.physics",
+  "unity": "2019.1",
+  "unityRelease": "10f1",
+  "version": "0.1.1-preview",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:Unity-Technologies/Havok.Physics.git",
+    "revision": "5a728ef8e6bd511e7dc8a6b360a504d22e264752"
+  }
+}

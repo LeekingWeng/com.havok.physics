@@ -1,0 +1,19 @@
+{
+  "name": "Havok.Physics.Hybrid",
+  "references": [
+    "Havok.Physics",
+    "Unity.Physics",
+    "Unity.Physics.Hybrid",
+    "Unity.Entities",
+    "Unity.Entities.Hybrid"
+  ],
+  "optionalUnityReferences": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": []
+}

@@ -1,0 +1,18 @@
+{
+    "name": "Havok.Physics.Editor",
+    "references": [
+        "GUID:2419f0405c1cc3648844bf370776b9d2",
+        "GUID:cbead101c08f2fa4bac12969551f3145"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": []
+}
