@@ -5,7 +5,9 @@
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Entities",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Transforms",
+        "Unity.Jobs"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [],

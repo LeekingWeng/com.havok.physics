@@ -1,0 +1,6 @@
+framework module HavokNative {
+  umbrella header "HavokNative.h"
+
+  export *
+  module * { export * }
+}

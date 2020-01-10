@@ -1,22 +1,22 @@
 {
-  "displayName": "Havok Physics",
+  "displayName": "Havok Physics for Unity",
   "category": "Havok",
   "author": "Microsoft",
-  "description": "Havok's award winning physics engine, applied to the DOTS framework. This augments the Unity.Physics package, allowing physics scenes authored for DOTS to be simulated using the Havok Physics engine.\n\nPLEASE NOTE: This is a trial version, which expires on January 15th 2020.\n\nAfter the trial period, the native plugins will no longer function in the editor. If you want to continue using Havok Physics after the trial period, you will have to upgrade to a newer version of this package when it becomes available.\n\nHavok Physics will continue to be free to use for Unity Personal and Unity Plus users after the trial period has ended. Unity Pro users will have to purchase a Havok subscription from the Unity Asset Store. For more details on licensing, please see the package documentation.",
+  "description": "Havok's award winning physics engine, applied to the DOTS framework. This augments the Unity Physics package, allowing physics scenes authored for DOTS to be simulated using the Havok Physics engine.\n\nHavok Physics for Unity is free to use for both Unity Personal and Unity Plus users. Unity Pro users must purchase a Havok subscription from the Unity Asset Store. For more details on licensing, see the package documentation.\n\nNOTE: The licensing and distribution model of Havok Physics for Unity is owned and managed entirely by Microsoft (Havok) and not by Unity.",
   "dependencies": {
-    "com.unity.physics": "0.2.4-preview"
+    "com.unity.physics": "0.2.5-preview.1"
   },
   "keywords": [
     "havok",
     "physics"
   ],
   "name": "com.havok.physics",
-  "unity": "2019.1",
-  "unityRelease": "10f1",
-  "version": "0.1.1-preview",
+  "unity": "2019.3",
+  "unityRelease": "0f1",
+  "version": "0.1.2-preview",
   "repository": {
     "type": "git",
     "url": "git@github.com:Unity-Technologies/Havok.Physics.git",
-    "revision": "5a728ef8e6bd511e7dc8a6b360a504d22e264752"
+    "revision": "bc86dadca4dcef5867d199c1c2285937cf9fe638"
   }
 }

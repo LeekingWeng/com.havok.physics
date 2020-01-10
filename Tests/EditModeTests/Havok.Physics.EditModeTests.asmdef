@@ -1,0 +1,27 @@
+{
+    "name": "Havok.Physics.EditModeTests",
+    "references": [
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Mathematics",
+        "Unity.Physics",
+        "Unity.Physics.Editor",
+        "Unity.Physics.Hybrid",
+        "Havok.Physics",
+        "Havok.Physics.PlayModeTests"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

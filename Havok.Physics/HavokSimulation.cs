@@ -115,6 +115,7 @@ namespace Havok.Physics
             m_WorldIndex = Plugin.HP_AllocateWorld(ref config, m_StepContext);
 
             m_Storage = new Storage();
+            m_Storage.Initialize();
         }
 
         public unsafe void Dispose()
@@ -136,47 +137,47 @@ namespace Havok.Physics
         public unsafe void ScheduleStepJobs(SimulationStepInput input, JobHandle inputDeps)
         {
             ref PhysicsWorld world = ref input.World;
-            
+
             m_Storage.InputVelocityCount = world.NumDynamicBodies;
             InputVelocities = m_Storage.InputVelocities;
 
-            if (world.NumBodies == 0)   // TODO: NumDynamicBodies == 0 ?
+            // Store the time step so it can be passed to IHavokJacobiansJobExtensions.Schedule()
+            TimeStep = input.TimeStep;
+
+            // Early out if there will be no effective result
+            if (world.NumDynamicBodies == 0 && !m_VisualDebuggerEnabled)
             {
                 FinalSimulationJobHandle = inputDeps;
                 FinalJobHandle = inputDeps;
                 return;
             }
 
-            // Store the time step so it can be passed to IHavokJacobiansJobExtensions.Schedule()
-            TimeStep = input.TimeStep;
-
-            SimulationCallbacks callbacks = input.Callbacks ?? new SimulationCallbacks();
-            JobHandle handle = inputDeps;
-
             // Synchronize the Havok Physics world with the current Unity Physics world
-            handle = new SyncJob
+            JobHandle handle = new SyncJob
             {
                 World = world,
                 WorldIndex = m_WorldIndex
-            }.Schedule(handle);
+            }.Schedule(inputDeps);
 
-            // Generate context required to step the Havok world
-            handle = new StartStepJob
+            SimulationCallbacks callbacks = input.Callbacks ?? new SimulationCallbacks();
+
+            // Step the Havok Physics world if necessary
+            if (world.NumDynamicBodies > 0)
             {
-                WorldIndex = m_WorldIndex,
-                StepInput = new StepInput
+                // Generate context for this step
+                handle = new StartStepJob
                 {
-                    m_timeStep = input.TimeStep,
-                    m_gravity = input.Gravity,
-                    m_numSolverIterations = input.NumSolverIterations,
-                    m_numThreads = input.ThreadCountHint
-                },
-                StepContext = m_StepContext
-            }.Schedule(handle);
+                    WorldIndex = m_WorldIndex,
+                    StepInput = new StepInput
+                    {
+                        m_timeStep = input.TimeStep,
+                        m_gravity = input.Gravity,
+                        m_numSolverIterations = input.NumSolverIterations,
+                        m_numThreads = input.ThreadCountHint
+                    },
+                    StepContext = m_StepContext
+                }.Schedule(handle);
 
-            // Step the world
-            // Split into multiple jobs based on which pieces of simulation data the caller wants access to, if any
-            {
                 // Broad phase
                 if (callbacks.Any(SimulationCallbacks.Phase.PostCreateDispatchPairs))
                 {
@@ -206,7 +207,6 @@ namespace Havok.Physics
 
                 // Solve Jacobians
                 handle = new StepJob(m_StepContext, SimulationCallbacks.Phase.PostSolveJacobians).Schedule(input.ThreadCountHint, 1, handle);
-                handle = callbacks.Execute(SimulationCallbacks.Phase.PostSolveJacobians, this, ref world, handle);
                 handle = JobHandle.CombineDependencies(handle, applyGravityAndCopyInputVelocitiesHandle);
             }
 
@@ -234,7 +234,10 @@ namespace Havok.Physics
             }
 
             // Extract the updated motion states from the Havok world
+            if (world.NumDynamicBodies > 0)
             {
+                handle = callbacks.Execute(SimulationCallbacks.Phase.PostSolveJacobians, this, ref world, handle);
+                
                 const int syncMotionsBatchSize = 128;
                 int numBatches = (world.MotionDatas.Length + syncMotionsBatchSize - 1) / syncMotionsBatchSize;
                 handle = new ExtractMotionsJob
@@ -244,12 +247,12 @@ namespace Havok.Physics
                     WorldIndex = m_WorldIndex,
                     BatchSize = syncMotionsBatchSize
                 }.Schedule(numBatches, 1, handle);
-            }
 
-            if (input.SynchronizeCollisionWorld)
-            {
-                // TODO: timeStep = 0 here for tighter bounds, since it will be rebuilt next step anyway?
-                handle = world.CollisionWorld.ScheduleUpdateDynamicLayer(ref world, input.TimeStep, input.Gravity, input.ThreadCountHint, handle);
+                if (input.SynchronizeCollisionWorld)
+                {
+                    // TODO: timeStep = 0 here for tighter bounds, since it will be rebuilt next step anyway?
+                    handle = world.CollisionWorld.ScheduleUpdateDynamicLayer(ref world, input.TimeStep, input.Gravity, input.ThreadCountHint, handle);
+                }
             }
 
             FinalSimulationJobHandle = handle;
@@ -264,6 +267,12 @@ namespace Havok.Physics
 
             public NativeSlice<Velocity> InputVelocities => new NativeSlice<Velocity>(m_InputVelocities, 0, m_InputVelocityCount);
 
+            public void Initialize()
+            {
+                m_InputVelocityCount = 0;
+                m_InputVelocities = new NativeArray<Velocity>(0, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            }
+
             public int InputVelocityCount
             {
                 get => m_InputVelocityCount;
@@ -272,10 +281,7 @@ namespace Havok.Physics
                     m_InputVelocityCount = value;
                     if (m_InputVelocities.Length < m_InputVelocityCount)
                     {
-                        if (m_InputVelocities.IsCreated)
-                        {
-                            m_InputVelocities.Dispose();
-                        }
+                        m_InputVelocities.Dispose();
                         m_InputVelocities = new NativeArray<Velocity>(m_InputVelocityCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
                     }
                 }
@@ -299,14 +305,14 @@ namespace Havok.Physics
 
             public unsafe void Execute()
             {
-                var bodies = (RigidBody*)World.Bodies.GetUnsafeReadOnlyPtr();
+                var bodies = World.Bodies.GetUnsafeReadOnlyPtr();
                 var motionDatas = (MotionData*)World.MotionDatas.GetUnsafeReadOnlyPtr();
                 var motionVelocities = (MotionVelocity*)World.MotionVelocities.GetUnsafeReadOnlyPtr();
                 var joints = (Joint*)World.Joints.GetUnsafeReadOnlyPtr();
 
                 Plugin.HP_SyncWorldIn(
                     WorldIndex,
-                    bodies, World.NumBodies, sizeof(RigidBody),
+                    bodies, World.NumBodies, UnsafeUtility.SizeOf<RigidBody>(),
                     motionDatas, World.NumDynamicBodies, sizeof(MotionData),
                     motionVelocities, World.NumDynamicBodies, sizeof(MotionVelocity),
                     joints, World.NumJoints, sizeof(Joint));

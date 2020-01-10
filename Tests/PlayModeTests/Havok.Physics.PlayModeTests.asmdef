@@ -1,0 +1,29 @@
+{
+    "name": "Havok.Physics.PlayModeTests",
+    "references": [
+        "Havok.Physics",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Entities.Tests",
+        "Unity.Mathematics",
+        "Unity.PerformanceTesting",
+        "Unity.Physics",
+        "Unity.Physics.Hybrid",
+        "Unity.Physics.Editor",
+        "Unity.Transforms",
+        "Unity.Jobs"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": []
+}

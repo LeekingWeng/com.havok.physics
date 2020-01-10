@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Physics;
+using UnityEngine.Assertions;
 
 namespace Havok.Physics
 {
@@ -16,11 +17,13 @@ namespace Havok.Physics
         const string k_DllPath = "__Internal";
 
         [DllImport(k_DllPath)]
-        static extern void HP_InitStaticPlugin();
+        static extern unsafe void UnityPluginLoad(void* unityInterfaces);
 
-        static Plugin()
+        static unsafe Plugin()
         {
-            HP_InitStaticPlugin();
+            // This is not the real type, but we require it to be non-null and do not dereference it on iOS.
+            int interfaces = 0;
+            UnityPluginLoad(&interfaces);
         }
 #else
         const string k_DllPath = "HavokNative";
@@ -42,7 +45,7 @@ namespace Havok.Physics
         [DllImport(k_DllPath)]
         internal static extern unsafe void HP_SyncWorldIn(
             int worldIndex,
-            RigidBody* rigidBodies, int numRigidBodies, int rigidBodyStride,
+            void* rigidBodies, int numRigidBodies, int rigidBodyStride,
             MotionData* motionDatas, int numMotionDatas, int motionDataStride,
             MotionVelocity* motionVelocities, int numMotionVelocities, int motionVelocityStride,
             Joint* joints, int numJoints, int jointStride);
@@ -170,50 +173,10 @@ namespace Havok.Physics
                 return;
             }
 
-            // Don't create dialogs or log messages if in automatic mode or explicitly requested (used by unit tests)
-            // TODO: This doesn't account for starting unit tests manually from the test runner window
-            bool verbose = UnityEditorInternal.InternalEditorUtility.isHumanControllingUs
+            // Don't create dialogs if in automatic mode or explicitly requested (used by unit tests)
+            bool createDialogs = UnityEditorInternal.InternalEditorUtility.isHumanControllingUs
                 && !UnityEngine.PlayerPrefs.HasKey("Havok.Auth.SuppressDialogs");
 
-            // Highlight the trial version limitations (once)
-            if (verbose && !UnityEngine.PlayerPrefs.HasKey("Havok.Auth.0-1-1-TrialAcknowledged"))
-            {
-                UnityEditor.EditorUtility.DisplayDialog(
-                    "Havok Physics - Trial Version",
-                    "PLEASE NOTE: This project is using a trial version of Havok Physics, which expires on January 15th 2020.\n\n" +
-                    "After the trial period, the native plugins will no longer function in the editor. " +
-                    "If you want to continue using this package after the trial period, you will have to upgrade to a newer version of the package when it becomes available.\n\n" +
-                    "Havok Physics will continue to be free to use for Unity Personal and Unity Plus users after the trial period. " +
-                    "Unity Pro users will have to purchase a Havok subscription from the Unity Asset Store. " +
-                    "For more details on licensing, please see the Havok.Physics package documentation.",
-                    "Close");
-                UnityEngine.PlayerPrefs.SetInt("Havok.Auth.0-1-1-TrialAcknowledged", 1);
-            }
-
-            using (var unlocker = new Unlocker())
-            {
-                unlocker.Complete();
-
-                if (verbose)
-                {
-                    int numDaysRemaining = unlocker.Result.NumDaysRemaining;
-
-                    if (numDaysRemaining < 0)
-                    {
-                        UnityEngine.Debug.LogError("Havok.Physics trial period has ended. Please update to a newer version of the package.");
-                    }
-                    else if (numDaysRemaining < 15)
-                    {
-                        UnityEngine.Debug.LogWarning("Havok.Physics trial period will end in " + numDaysRemaining + " day" + (numDaysRemaining == 1 ? "" : "s") + ". Please update to a newer version of the package.");
-                    }
-                    else
-                    {
-                        UnityEngine.Debug.Log("Havok.Physics trial period will end in " + numDaysRemaining + " day" + (numDaysRemaining == 1 ? "" : "s") + ".");
-                    }
-                }
-            }
-
-            /*
             using (var unlocker = new Unlocker())
             {
                 while (true)
@@ -231,36 +194,49 @@ namespace Havok.Physics
                     }
                     else
                     {
+                        const string assetStoreLink = "https://aka.ms/hkunityassetstore";
+                        const string failureTitle = "Havok Physics simulation disabled";
+                        const string closeButtonText = "Close";
                         UnityEditor.EditorUtility.ClearProgressBar();
                         switch (unlocker.Result.Value)
                         {
                             case UnlockResult.Status.NoUser:
                                 {
-                                    var title = "Havok Physics simulation disabled";
-                                    var message = "Could not check Havok Physics permissions because no user is signed into Unity.\nPlease sign in.";
+                                    string message = "Could not check Havok Physics permissions because no user is signed into Unity.\nPlease sign in.";
                                     if (createDialogs)
                                     {
-                                        UnityEditor.EditorUtility.DisplayDialog(title, message, "Close");
+                                        UnityEditor.EditorUtility.DisplayDialog(failureTitle, message, closeButtonText);
                                     }
                                     else
                                     {
-                                        UnityEngine.Debug.LogWarning(title + ".\n" + message);
+                                        UnityEngine.Debug.LogError(failureTitle + ".\n" + message);
                                     }
                                 }
                                 break;
 
                             case UnlockResult.Status.NoSubscription:
                                 {
-                                    var title = "Havok Physics simulation disabled";
-                                    //var message = "No Havok Physics subscription found for the current user.\nUnity Pro users must purchase a subscription from the Unity Asset Store.";
-                                    var message = "Havok.Physics trial period has ended. Please update to a newer version of the package.";
+                                    string message = "No Havok Physics subscription found for the current user.\nUnity Pro users must purchase a subscription from the Unity Asset Store.";
                                     if (createDialogs)
                                     {
-                                        UnityEditor.EditorUtility.DisplayDialog(title, message, "Close");
+                                        if (UnityEditor.EditorUtility.DisplayDialog(failureTitle, message, "Go to Asset Store page", closeButtonText))
+                                        {
+                                            UnityEditor.Help.BrowseURL(assetStoreLink);
+                                        }
                                     }
                                     else
                                     {
-                                        UnityEngine.Debug.LogWarning(title + ".\n" + message);
+                                        UnityEngine.Debug.LogError(failureTitle + ".\n" + message);
+                                    }
+                                }
+                                break;
+
+                            case UnlockResult.Status.Unlocked:
+                                {
+                                    if (unlocker.Result.NumDaysRemaining < 10)
+                                    {
+                                        UnityEngine.Debug.LogWarningFormat("Havok.Physics license will expire in {0} days. Please extend it from the Unity Asset Store: {1} .",
+                                            unlocker.Result.NumDaysRemaining, assetStoreLink);
                                     }
                                 }
                                 break;
@@ -272,7 +248,6 @@ namespace Havok.Physics
                     }
                 }
             }
-            */
         }
 
         // Create a background job to unlock the plugin. Don't wait for it.
@@ -305,7 +280,7 @@ namespace Havok.Physics
             //bool isLoggedIn = (bool)unityConnectType.GetProperty("loggedIn").GetValue(unityConnect, null);
             //if (!isLoggedIn)
             //    return null;
-            
+
             UserInfo userInfoOut;
             
             int cloudIdentityEnum = 6; // TODO: Use reflection to get this from UnityEditor.Connect.CloudConfigUrl.CloudIdentity
@@ -323,15 +298,18 @@ namespace Havok.Physics
         {
             public enum Status
             {
+                // Fail
                 Invalid,
-                Unlocked,
                 NoUser,
-                NoSubscription
+                NoSubscription,
+
+                // Success
+                Unlocked
             }
 
             public Status Value;
 
-            // Number of days remaining if unlocked. 0 corresponds to indefinite.
+            // Number of days remaining if unlocked
             public int NumDaysRemaining;
         }
 
@@ -380,9 +358,6 @@ namespace Havok.Physics
                     }
                 }
 
-                // TEMP: We don't actually need the user to be logged in during the trial period
-                authInfo = default;
-
                 m_AuthInfo[0] = authInfo;
                 m_Result[0] = new UnlockResult { Value = UnlockResult.Status.Invalid };
                 m_jobHandle = new UnlockJob() { AuthInfo = m_AuthInfo, Result = m_Result }.Schedule();
@@ -418,22 +393,12 @@ namespace Havok.Physics
                 {
                     AuthInfo info = AuthInfo[0];
                     int unlockResult = HP_UnlockPlugin(ref info);
-                    if (unlockResult < 0)
+                    Result[0] = new UnlockResult
                     {
-                        Result[0] = new UnlockResult
-                        {
-                            Value = UnlockResult.Status.NoSubscription,
-                            NumDaysRemaining = unlockResult
-                        };
-                    }
-                    else
-                    {
-                        Result[0] = new UnlockResult
-                        {
-                            Value = UnlockResult.Status.Unlocked,
-                            NumDaysRemaining = unlockResult
-                        };
-                    }
+                        Value = unlockResult < 0 ? UnlockResult.Status.NoSubscription : UnlockResult.Status.Unlocked,
+                        NumDaysRemaining = unlockResult
+                    };
+
                     AuthInfo[0] = info;
                 }
             }

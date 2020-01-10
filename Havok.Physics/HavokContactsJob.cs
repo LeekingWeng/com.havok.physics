@@ -130,29 +130,39 @@ namespace Unity.Physics
                                 manifoldCache->m_restitution.Value = userHeader.ContactHeader.CoefficientOfRestitution;
                                 cdp->m_jacobianFlags = (byte)userHeader.ContactHeader.JacobianFlags;
 
-                                if ((cdp->m_jacobianFlags & (byte)JacobianFlags.EnableMassFactors) != 0)
+                                if ((cdp->m_jacobianFlags & (byte)JacobianFlags.Disabled) != 0)
                                 {
-                                    manifold->m_DataFields |= 1 << 1; // hknpManifold::INERTIA_MODIFIED
-                                    manifold->m_DataFields &= 0xfb; // ~CONTAINS_TRIANGLE
-
-                                    var mp = (MassFactors*)UnsafeUtility.AddressOf(ref manifold->m_Scratch[0]);
-                                    mp->InvInertiaAndMassFactorA = new float4(1);
-                                    mp->InvInertiaAndMassFactorB = new float4(1);
+                                    manifold->m_ManifoldType = 3; // hknpManifoldType::DISABLED
+                                    manifoldCache->m_collisionFlags = 1 << 9; // hknpCollisionFlags::DONT_BUILD_CONTACT_JACOBIANS
                                 }
-
-                                if ((cdp->m_jacobianFlags & (byte)JacobianFlags.IsTrigger) != 0)
+                                else
                                 {
-                                    manifold->m_ManifoldType = 1; // hknpManifoldType::TRIGGER
-                                }
+                                    // Not disabled, so check for other modifications.
 
-                                if ((cdp->m_jacobianFlags & (byte)JacobianFlags.EnableSurfaceVelocity) != 0)
-                                {
-                                    manifoldCache->m_collisionFlags |= 1 << 25; // hknpCollisionFlags::ENABLE_SURFACE_VELOCITY
-                                }
+                                    if ((cdp->m_jacobianFlags & (byte)JacobianFlags.EnableMassFactors) != 0)
+                                    {
+                                        manifold->m_DataFields |= 1 << 1; // hknpManifold::INERTIA_MODIFIED
+                                        manifold->m_DataFields &= 0xfb; // ~CONTAINS_TRIANGLE
 
-                                if (userHeader.ContactHeader.CoefficientOfRestitution != 0)
-                                {
-                                    manifoldCache->m_collisionFlags |= 1 << 20; // hknpCollisionFlags::ENABLE_RESTITUTION
+                                        var mp = (MassFactors*)UnsafeUtility.AddressOf(ref manifold->m_Scratch[0]);
+                                        mp->InvInertiaAndMassFactorA = new float4(1);
+                                        mp->InvInertiaAndMassFactorB = new float4(1);
+                                    }
+
+                                    if ((cdp->m_jacobianFlags & (byte)JacobianFlags.IsTrigger) != 0)
+                                    {
+                                        manifold->m_ManifoldType = 1; // hknpManifoldType::TRIGGER
+                                    }
+
+                                    if ((cdp->m_jacobianFlags & (byte)JacobianFlags.EnableSurfaceVelocity) != 0)
+                                    {
+                                        manifoldCache->m_collisionFlags |= 1 << 25; // hknpCollisionFlags::ENABLE_SURFACE_VELOCITY
+                                    }
+
+                                    if (userHeader.ContactHeader.CoefficientOfRestitution != 0)
+                                    {
+                                        manifoldCache->m_collisionFlags |= 1 << 20; // hknpCollisionFlags::ENABLE_RESTITUTION
+                                    }
                                 }
                             }
                         }

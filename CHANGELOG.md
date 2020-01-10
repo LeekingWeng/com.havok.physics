@@ -1,6 +1,17 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.1.2-preview] - 9999-12-31
+
+### Changed
+
+### Fixed
+- Fixed the issue of uninitialized array when scheduling collision event jobs with no dynamic bodies in the scene.
+- Fixed an issue where contacts were not being correctly disabled in an IContactsJob.
+- The Havok Visual Debugger (VDB) is now always stepped, even when there are no dynamic bodies in the scene.
+- Fixed the job handle ordering during step. This fixes errors when simulation callbacks were added.
+- The VDB is now correctly initialised with the port supplied.
+
 ## [0.1.1-preview] - 2019-09-20
 
 - First public release
