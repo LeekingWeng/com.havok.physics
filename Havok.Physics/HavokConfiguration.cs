@@ -8,10 +8,6 @@ namespace Havok.Physics
     [StructLayout(LayoutKind.Sequential)]
     public struct HavokConfiguration : IComponentData
     {
-        // The Havok broad phase uses quantized AABBs, which requires an explicit world extent.
-        // This AABB should be big enough to encompass all rigid bodies, otherwise collisions will not happen.
-        public Unity.Physics.Aabb WorldBounds;
-
         // Whether sleeping of dynamic rigid bodies is enabled.
         public int EnableSleeping;  // int for PInvoke
 
@@ -36,11 +32,6 @@ namespace Havok.Physics
 
         public static readonly HavokConfiguration Default = new HavokConfiguration
         {
-            WorldBounds = new Unity.Physics.Aabb
-            {
-                Max = new float3(5000f),
-                Min = new float3(-5000f)
-            },
             EnableSleeping = 1,
             VisualDebugger = new VisualDebuggerConfiguration
             {

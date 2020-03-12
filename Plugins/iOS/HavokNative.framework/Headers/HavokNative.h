@@ -1,10 +1,4 @@
-// TKBMS v1.0 -----------------------------------------------------
-//
-// PLATFORM       : IOS
-// PRODUCT        : PHYSICS
-// VISIBILITY     : PUBLIC
-//
-// ------------------------------------------------------TKBMS v1.0
+
 
 //! Project version number for HavokNativeFramework_ios_xcode.
 FOUNDATION_EXPORT double HavokNativeFramework_ios_xcodeVersionNumber;

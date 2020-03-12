@@ -7,34 +7,45 @@ using Unity.Mathematics;
 
 namespace Unity.Physics
 {
+    // Interface for jobs that iterate through the list of contact manifolds produced by the narrow phase
+    [JobProducerType(typeof(IHavokContactsJobExtensions.ContactsJobProcess<>))]
+    public interface IContactsJob : IContactsJobBase
+    {
+    }
+
     public static class IHavokContactsJobExtensions
     {
-        // IContactsJob.Schedule() implementation for when Havok Physics is available
+        // Schedule() implementation for IContactsJob when Havok Physics is available
         public static unsafe JobHandle Schedule<T>(this T jobData, ISimulation simulation, ref PhysicsWorld world, JobHandle inputDeps)
-            where T : struct, IContactsJob
+            where T : struct, IContactsJobBase
         {
-            if (simulation.Type == SimulationType.UnityPhysics)
+            switch (simulation.Type)
             {
-                return IContactsJobExtensions.ScheduleImpl(jobData, simulation, ref world, inputDeps);
-            }
-            else if (simulation.Type == SimulationType.HavokPhysics)
-            {
-                var data = new ContactsJobData<T>
+                case SimulationType.UnityPhysics:
+                    // Call the scheduling method for Unity.Physics
+                    return IContactsJobExtensions.ScheduleUnityPhysicsContactsJob(jobData, simulation, ref world, inputDeps);
+
+                case SimulationType.HavokPhysics:
                 {
-                    UserJobData = jobData,
-                    ManifoldStream = ((Havok.Physics.HavokSimulation)simulation).ManifoldStream,
-                    PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
-                    Bodies = world.Bodies
-                };
-                var parameters = new JobsUtility.JobScheduleParameters(
-                    UnsafeUtility.AddressOf(ref data),
-                    ContactsJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
-                return JobsUtility.Schedule(ref parameters);
+                    var data = new ContactsJobData<T>
+                    {
+                        UserJobData = jobData,
+                        ManifoldStream = ((Havok.Physics.HavokSimulation)simulation).ManifoldStream,
+                        PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
+                        Bodies = world.Bodies
+                    };
+                    var parameters = new JobsUtility.JobScheduleParameters(
+                        UnsafeUtility.AddressOf(ref data),
+                        ContactsJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
+                    return JobsUtility.Schedule(ref parameters);
+                }
+
+                default:
+                    return inputDeps;
             }
-            return inputDeps;
         }
 
-        private unsafe struct ContactsJobData<T> where T : struct
+        internal unsafe struct ContactsJobData<T> where T : struct
         {
             public T UserJobData;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* ManifoldStream;
@@ -43,7 +54,7 @@ namespace Unity.Physics
             [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
         }
 
-        private struct ContactsJobProcess<T> where T : struct, IContactsJob
+        internal struct ContactsJobProcess<T> where T : struct, IContactsJobBase
         {
             static IntPtr jobReflectionData;
 
@@ -145,8 +156,10 @@ namespace Unity.Physics
                                         manifold->m_DataFields &= 0xfb; // ~CONTAINS_TRIANGLE
 
                                         var mp = (MassFactors*)UnsafeUtility.AddressOf(ref manifold->m_Scratch[0]);
-                                        mp->InvInertiaAndMassFactorA = new float4(1);
-                                        mp->InvInertiaAndMassFactorB = new float4(1);
+                                        mp->InverseInertiaFactorA = new float3(1);
+                                        mp->InverseMassFactorA = 1.0f;
+                                        mp->InverseInertiaFactorB = new float3(1);
+                                        mp->InverseMassFactorB = 1.0f;
                                     }
 
                                     if ((cdp->m_jacobianFlags & (byte)JacobianFlags.IsTrigger) != 0)

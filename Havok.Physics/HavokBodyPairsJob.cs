@@ -6,34 +6,45 @@ using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.Physics
 {
+    // Interface for jobs that iterate through the list of potentially overlapping body pairs produced by the broad phase
+    [JobProducerType(typeof(IHavokBodyPairsJobExtensions.BodyPairsJobProcess<>))]
+    public interface IBodyPairsJob : IBodyPairsJobBase
+    {
+    }
+
     public static class IHavokBodyPairsJobExtensions
     {
-        // IBodyPairsJob.Schedule() implementation for when Havok Physics is available
+        // Schedule() implementation for IBodyPairsJob when Havok Physics is available
         public static unsafe JobHandle Schedule<T>(this T jobData, ISimulation simulation, ref PhysicsWorld world, JobHandle inputDeps)
-            where T : struct, IBodyPairsJob
+            where T : struct, IBodyPairsJobBase
         {
-            if (simulation.Type == SimulationType.UnityPhysics)
+            switch (simulation.Type)
             {
-                return IBodyPairsJobExtensions.ScheduleImpl(jobData, simulation, ref world, inputDeps);
-            }
-            else if (simulation.Type == SimulationType.HavokPhysics)
-            {
-                var data = new BodyPairsJobData<T>
+                case SimulationType.UnityPhysics:
+                    // Call the scheduling method for Unity.Physics
+                    return IBodyPairsJobExtensions.ScheduleUnityPhysicsBodyPairsJob(jobData, simulation, ref world, inputDeps);
+
+                case SimulationType.HavokPhysics:
                 {
-                    UserJobData = jobData,
-                    BlockStreamStart = ((Havok.Physics.HavokSimulation)simulation).NewBodyPairsStream,
-                    PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
-                    Bodies = world.Bodies
-                };
-                var parameters = new JobsUtility.JobScheduleParameters(
-                    UnsafeUtility.AddressOf(ref data),
-                    BodyPairsJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
-                return JobsUtility.Schedule(ref parameters);
+                    var data = new BodyPairsJobData<T>
+                    {
+                        UserJobData = jobData,
+                        BlockStreamStart = ((Havok.Physics.HavokSimulation)simulation).NewBodyPairsStream,
+                        PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
+                        Bodies = world.Bodies
+                    };
+                    var parameters = new JobsUtility.JobScheduleParameters(
+                        UnsafeUtility.AddressOf(ref data),
+                        BodyPairsJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
+                    return JobsUtility.Schedule(ref parameters);
+                }
+
+                default:
+                    return inputDeps;
             }
-            return inputDeps;
         }
 
-        private unsafe struct BodyPairsJobData<T> where T : struct
+        internal unsafe struct BodyPairsJobData<T> where T : struct
         {
             public T UserJobData;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* BlockStreamStart;
@@ -42,7 +53,7 @@ namespace Unity.Physics
             [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
         }
 
-        private struct BodyPairsJobProcess<T> where T : struct, IBodyPairsJob
+        internal struct BodyPairsJobProcess<T> where T : struct, IBodyPairsJobBase
         {
             static IntPtr jobReflectionData;
 

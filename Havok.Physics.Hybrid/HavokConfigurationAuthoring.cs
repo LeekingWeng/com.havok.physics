@@ -19,11 +19,6 @@ namespace Havok.Physics.Authoring
             "Welding eliminates undesirable impulses when fast objects slide on or past other objects, with some additional performance cost.")]
         public Unity.Physics.Authoring.CustomPhysicsBodyTags BodyTagsForContactWelding;
 
-        [SerializeField]
-        [Tooltip("The Havok broadphase uses quantized AABBs, which requires that the world has explicit maximum extents. " +
-            "This AABB should be big enough to encompass all rigid bodies, otherwise collisions will not happen.")]
-        public Unity.Physics.Aabb WorldBounds = HavokConfiguration.Default.WorldBounds;
-
         [Serializable]
         public class VisualDebuggerConfiguation
         {
@@ -48,7 +43,6 @@ namespace Havok.Physics.Authoring
         {
             EnableSleeping = EnableSleeping ? 1 : 0,
             BodyTagsForContactWelding = BodyTagsForContactWelding.Value,
-            WorldBounds = WorldBounds,
             VisualDebugger = new HavokConfiguration.VisualDebuggerConfiguration
             {
                 Enable = VisualDebugger.EnableVisualDebugger ? 1 : 0,

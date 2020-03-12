@@ -1,7 +1,16 @@
-#if UNITY_64 || UNITY_EDITOR_64 || UNITY_PS4 || UNITY_SWITCH || UNITY_XBOXONE || UNITY_IOS
+// This file contains mirror structures for Havok SDK structures that are used in Havok Physics code.
+
+#if UNITY_64 || UNITY_EDITOR_64 || UNITY_PS4 || UNITY_SWITCH || UNITY_XBOXONE || UNITY_IOS || UNITY_ANDROID
 #define HK_IS_64BIT
 #endif
+
+#if HK_ANDROID_32
+// This is a custom define that tells us we're building Android ARMv7 (ARM64 is assumed for Android otherwise)
+#undef HK_IS_64BIT
+#endif
+
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_XBOXONE
+// MSVC compiler cannot use the padding from base class to put derived class members
 #define HK_NEEDS_EXTRA_STRUCT_PACKING
 #endif
 using System;
@@ -23,6 +32,7 @@ namespace Havok.Physics
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpBlockStream
     {
+        [StructLayout(LayoutKind.Sequential)]
         public struct Block
         {
 #pragma warning disable CS0649, CS0169
@@ -56,8 +66,11 @@ namespace Havok.Physics
         byte m_PartiallyFreed;
         byte m_IsLocked;
 
-#if !HK_IS_64BIT
-        int m_padding32;
+        // m_Data needs to be 16B-aligned
+#if HK_IS_64BIT
+        fixed byte m_Padding16[2];
+#else
+        fixed byte m_Padding16[6];
 #endif
 
         Block** m_Data;
@@ -176,25 +189,27 @@ namespace Havok.Physics
 #pragma warning disable CS0649
         public Unity.Physics.BodyIndexPair BodyIds;
         public int NumManifolds;
-        uint m_Padding;
+        ushort m_CacheQualityFlags;
+        ushort m_Padding;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
     }
 
+    // This struct contains fields from SDK's hknpManifold
     unsafe struct HpManifold
     {
 #pragma warning disable CS0169
 #pragma warning disable CS0649
+        // Inherited from hkcdManifold4
         public int NumPoints;
         float m_MinimumDistance;
-        int m_Padding0; //<todo.eoin.hpmod are these necessary?
-        int m_Padding1;
-
+        fixed byte m_Padding0[8];
         public float4 Normal;
         float4 m_WeldNormal;
         public fixed float Distances[4];
         public fixed float Positions[4 * 4];
 
+        // hknpManifold fields
         float4 m_GskPosition;
         public byte m_ManifoldType;
         byte m_UseIncreasedIterations;
@@ -203,7 +218,7 @@ namespace Havok.Physics
         byte m_NumVerticesOfQuad;
         public byte m_DataFields;
         byte m_AppliedWeldingTypes;
-        byte m_Padding2;
+        byte m_Padding1;
         [NativeDisableUnsafePtrRestriction] internal HPManifoldCollisionCache* m_CollisionCache;
         internal uint m_ShapeKeyA;
         internal uint m_ShapeKeyB;
@@ -211,9 +226,9 @@ namespace Havok.Physics
         [NativeDisableUnsafePtrRestriction] IntPtr m_MaterialB;
 
 #if HK_IS_64BIT
-        fixed byte m_Padding3[8];
+        fixed byte m_Padding2[8];
 #else
-        fixed byte m_Padding3[4];
+        fixed byte m_Padding2[4];
 #endif
         internal fixed float m_Scratch[16];
 #pragma warning restore CS0649
@@ -250,6 +265,7 @@ namespace Havok.Physics
     {
 #pragma warning disable CS0169
 #pragma warning disable CS0649
+        // Inherited from hknpCollisionCache
         Unity.Physics.BodyIndexPair m_bodyPair;
         byte m_type;
         byte m_sizeDiv16;
@@ -257,19 +273,22 @@ namespace Havok.Physics
         ushort m_linearTim;
         byte m_lodInfo;
         byte m_scratch;
+
+        // Inherited from hknpGskCollisionCache
         fixed byte m_gskCache[5];
         byte m_propertyKeysUsed;
-        ushort m_shapeMaterialId;
+        ushort m_shapeBMaterialId;
         fixed byte m_separatingNormal[3];
-        public byte m_propertiesStartDiv16;
+        public byte m_propertiesStartOffsetDiv16;
         public uint m_propertyOffsets;
-        public HPHalf m_frictionRhsMultiplier;
-        ushort m_flags;
-        public uint m_collisionFlags;
+
+        // hknpManifoldCollisionCache's fields
         IntPtr m_contactJacobianBlock;
         ushort m_contactJacobianOffset;
         byte m_fractionOfClippedImpulseToApply;
         byte m_numContactPoints;
+        public uint m_collisionFlags;
+
 
         public HPHalf m_friction;
         HPHalf m_extraStaticFriction;
@@ -281,6 +300,14 @@ namespace Havok.Physics
 #else
         internal fixed byte m_padding0[6];
 #endif
+
+        // m_manifoldSolverInfo
+        public HPHalf m_frictionRhsMultiplier;
+        ushort m_flags;
+
+        float4 m_impulsesApplied;
+        float4 m_allowedInitialPenetrations;
+        float4 m_constraintBiases;
         public float4 m_integratedFrictionRhs;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
@@ -290,7 +317,7 @@ namespace Havok.Physics
             const int propertyKey = 4; //USER_PROPERTY_0
             const int propertyAlignment = 4;
 
-            byte propertiesStartDiv16 = m_propertiesStartDiv16;
+            byte propertiesStartDiv16 = m_propertiesStartOffsetDiv16;
             uint propertyOffsets = m_propertyOffsets;
             uint offset = (propertyOffsets >> ((propertyKey * 4) - 2)) & (0x0f * propertyAlignment);
             uint customDataOffset = (uint)(propertiesStartDiv16 * 16) + offset;
@@ -324,6 +351,7 @@ namespace Havok.Physics
         public float4 m_jacAng_angular1;
 #pragma warning disable CS0169
 #pragma warning disable CS0649
+        // hkReals m_invJac01, m_maxImpulse, m_contactRadius and m_iterativeFriction
         fixed byte m_buffer[16];
 #pragma warning restore CS0649
 #pragma warning restore CS0169
@@ -339,39 +367,35 @@ namespace Havok.Physics
 #pragma warning restore CS0169
     };
 
+    // This struct contains fields from SDK's hknpStreamContactJacobian
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpJacHeader
     {
 #pragma warning disable CS0169
 #pragma warning disable CS0649
-        internal byte m_type;
+        // Bitfields m_flags and m_dimB
+        public ushort m_flagsAndDimB;
+
         public byte m_sizeDiv16;
-        internal byte m_manifoldType;
-        byte m_dimB;
-
-        public byte m_flags;
         internal byte m_numPoints;
-        public byte m_frictionType;
         internal byte m_modTypes;
-
-        uint m_solverVelA;
-        uint m_solverVelB;
-        IntPtr m_solverTemps;
-#if !HK_IS_64BIT
-        uint m_padding0;
-#endif
-        internal float m_clipMaxImpulse;
-        internal byte m_clipImpulseFraction;
+        internal byte m_manifoldType;
         internal byte m_clipMode;
-        byte m_padding1;
-        byte m_padding2;
-        internal float4 m_normal;
+        internal byte m_clipImpulseFraction;
+
         internal uint m_bodyIdA;
         internal uint m_bodyIdB;
+
+        internal float4 m_normal;
+
         internal HPManifoldCollisionCache* m_manifoldCollisionCache;
 #if !HK_IS_64BIT
-        uint m_padding3;
+        uint m_padding;
 #endif
+
+        uint m_solverVelIdA;
+        uint m_solverVelIdB;
+
         fixed ushort m_referenceOrientation[4];
         fixed ushort m_normalDotArm[4];
 #pragma warning restore CS0649
@@ -386,34 +410,41 @@ namespace Havok.Physics
             COMCHANGER = 1 << 3,
         };
 
-        int sizeOfUpToFriction(int numContactPoints)
+        internal int sizeOfUpToFriction(int numContactPoints)
         {
             return sizeof(HpJacHeader) + numContactPoints * sizeof(HpJacAngular);
         }
 
-        int sizeOfJacFriction(byte frictionType)
+        public static bool hasAnyFriction(ushort flags)
         {
-            return (frictionType == 3 || frictionType == 4) ? sizeof(HpJac3dFriction) : 0;
+            // Value from SDK's JacHeaderFlags
+            ushort jhFrictionAny = (1 << 4 | 1 << 5);
+            return (flags & jhFrictionAny) > 0;
         }
 
-        int sizeOfUpToModHdr(int numContactPoints, byte frictionType)
+        int sizeOfJacFriction(ushort flags)
         {
-            return sizeOfUpToFriction(numContactPoints) + sizeOfJacFriction(frictionType);
+            return hasAnyFriction(flags) ? sizeof(HpJac3dFriction) : 0;
         }
 
-        int sizeOfUpToSurfaceVel(int numContactPoints, byte frictionType, byte modifierTypes)
+        int sizeOfUpToModHdr(int numContactPoints, ushort flags)
         {
-            return sizeOfUpToModHdr(numContactPoints, frictionType) + ((modifierTypes == 0) ? 0 : sizeof(HpJacModHeader));
+            return sizeOfUpToFriction(numContactPoints) + sizeOfJacFriction(flags);
         }
 
-        int sizeOfUpToNormalVel(int numContactPoints, byte frictionType, byte modifierTypes)
+        int sizeOfUpToSurfaceVel(int numContactPoints, ushort flags, byte modifierTypes)
         {
-            return sizeOfUpToSurfaceVel(numContactPoints, frictionType, modifierTypes) + (((modifierTypes & (byte)ModifierType.SURFACEVEL) == 0) ? 0 : sizeof(Unity.Physics.SurfaceVelocity));
+            return sizeOfUpToModHdr(numContactPoints, flags) + ((modifierTypes == 0) ? 0 : sizeof(HpJacModHeader));
         }
 
-        int sizeOfUpToInertiaFactor(int numContactPoints, byte frictionType, byte modifierTypes)
+        int sizeOfUpToNormalVel(int numContactPoints, ushort flags, byte modifierTypes)
         {
-            return sizeOfUpToNormalVel(numContactPoints, frictionType, modifierTypes) + (((modifierTypes & (byte)ModifierType.NORMALVEL) == 0) ? 0 : sizeof(float4));
+            return sizeOfUpToSurfaceVel(numContactPoints, flags, modifierTypes) + (((modifierTypes & (byte)ModifierType.SURFACEVEL) == 0) ? 0 : sizeof(Unity.Physics.SurfaceVelocity));
+        }
+
+        int sizeOfUpToInertiaFactor(int numContactPoints, ushort flags, byte modifierTypes)
+        {
+            return sizeOfUpToNormalVel(numContactPoints, flags, modifierTypes) + (((modifierTypes & (byte)ModifierType.NORMALVEL) == 0) ? 0 : sizeof(float4));
         }
 
         unsafe public HpJacAngular* accessJacAngular(int i)
@@ -426,7 +457,7 @@ namespace Havok.Physics
         unsafe public float3* accessSurfaceVelocity()
         {
             byte* baseJac = (byte*)UnsafeUtility.AddressOf(ref this);
-            int offset = sizeOfUpToSurfaceVel(m_numPoints, m_frictionType, m_modTypes);
+            int offset = sizeOfUpToSurfaceVel(m_numPoints, m_flagsAndDimB, m_modTypes);
             return (float3*)(baseJac + offset);
         }
 
@@ -440,7 +471,7 @@ namespace Havok.Physics
         unsafe public Unity.Physics.MassFactors* accessMassFactors()
         {
             byte* baseJac = (byte*)UnsafeUtility.AddressOf(ref this);
-            int offset = sizeOfUpToInertiaFactor(m_numPoints, m_frictionType, m_modTypes);
+            int offset = sizeOfUpToInertiaFactor(m_numPoints, m_flagsAndDimB, m_modTypes);
             return (Unity.Physics.MassFactors*)(baseJac + offset);
         }
     };
@@ -454,57 +485,68 @@ namespace Havok.Physics
 #pragma warning restore CS0649
     };
 
+    // This struct contains fields from SDK's hkBlockStream::LinkedRange
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpLinkedRange
     {
 #pragma warning disable CS0649
+        // hkBlockStream::Range fields
         internal HpBlockStream.Block* m_block;
         internal ushort m_startByteOffset;
         internal ushort m_startBlockNumElements;
         internal int m_numElements;
+#if HK_NEEDS_EXTRA_STRUCT_PACKING && !HK_IS_64BIT
+        // Additional padding for 32bit MSVC
+        fixed byte m_padding0[4];
+#endif
 
+        // hkBlockStream::LinkedRange fields
         internal HpLinkedRange* m_next;
+#if HK_NEEDS_EXTRA_STRUCT_PACKING
+    #if HK_IS_64BIT
+        // Additional padding for 64bit MSVC
+        fixed byte m_padding1[8];
+    #else
+        // Additional padding for 32bit MSVC
+        fixed byte m_padding1[12];
+    #endif
+#endif
 
 #pragma warning restore CS0649
     };
 
+    // This struct contains fields from SDK's hknpCsJacRange
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpCsContactJacRange
     {
 #pragma warning disable CS0649
         internal HpLinkedRange m_range;
-#if HK_NEEDS_EXTRA_STRUCT_PACKING && HK_IS_64BIT
-        fixed byte m_padding[8];
-#endif
         byte m_solverId;
+        // Padding after m_solverId
+        fixed byte m_padding0[3];
+        int m_solveStateBytes;
 
-#if HK_NEEDS_EXTRA_STRUCT_PACKING
-        fixed byte m_padding0[15];
-#endif
-
-        int m_totalBytes;
-        int m_maxNumPoints;
-#if HK_NEEDS_EXTRA_STRUCT_PACKING
+#if HK_NEEDS_EXTRA_STRUCT_PACKING || !HK_IS_64BIT
+        // Padding to make this struct 16B-aligned on MSVC (both 32 and 64bit) and 32bit non-MSVC
+        // On 32bit non-MSVC, struct dsize is 24, but sizeof is 32 (because of packing alignment), so we need to add padding here.
         fixed byte m_padding1[8];
-#endif
-
-#if !HK_IS_64BIT
-        fixed byte m_padding2[4];
-#endif
-
-#if HK_IS_64BIT && !HK_NEEDS_EXTRA_STRUCT_PACKING
-        fixed byte m_padding[8];
 #endif
 
 #pragma warning restore CS0649
     };
 
+    // This struct contains fields from SDK's hknpCsGrid that are important for HavokPhysics
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpGrid
     {
 #pragma warning disable CS0649
+        // hknpGrid::m_entries
         internal HpCsContactJacRange* m_entries;
         internal int m_size;
+
+        // We don't care about hknpGrid::m_lastEntries
 #pragma warning restore CS0649
+
+        // We don't care about the following hknpCsGrid fields: m_occupancy, m_tempsSize, m_tempsBuffer, m_tempsBufferSize
     };
 }

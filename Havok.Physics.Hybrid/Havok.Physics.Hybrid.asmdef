@@ -1,19 +1,22 @@
 {
-  "name": "Havok.Physics.Hybrid",
-  "references": [
-    "Havok.Physics",
-    "Unity.Physics",
-    "Unity.Physics.Hybrid",
-    "Unity.Entities",
-    "Unity.Entities.Hybrid"
-  ],
-  "optionalUnityReferences": [],
-  "includePlatforms": [],
-  "excludePlatforms": [],
-  "allowUnsafeCode": false,
-  "overrideReferences": false,
-  "precompiledReferences": [],
-  "autoReferenced": true,
-  "defineConstraints": [],
-  "versionDefines": []
+    "name": "Havok.Physics.Hybrid",
+    "references": [
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Mathematics",
+        "Havok.Physics",
+        "Unity.Physics",
+        "Unity.Physics.Hybrid"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": []
 }

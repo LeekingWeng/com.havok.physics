@@ -1,54 +1,57 @@
 using System;
-using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.Physics
 {
+    // Interface for jobs that iterate through the list of collision events produced by the solver.
+    [JobProducerType(typeof(IHavokCollisionEventsJobExtensions.CollisionEventJobProcess<>))]
+    public interface ICollisionEventsJob : ICollisionEventsJobBase
+    {
+    }
+
     public static class IHavokCollisionEventsJobExtensions
     {
-        // ICollisionEventsJob.Schedule() implementation for when Havok Physics is available
+        // Schedule() implementation for ICollisionEventsJob when Havok Physics is available
         public static unsafe JobHandle Schedule<T>(this T jobData, ISimulation simulation, ref PhysicsWorld world, JobHandle inputDeps)
-            where T : struct, ICollisionEventsJob
+            where T : struct, ICollisionEventsJobBase
         {
-            if (simulation.Type == SimulationType.UnityPhysics)
+            switch (simulation.Type)
             {
-                return ICollisionEventJobExtensions.ScheduleImpl(jobData, simulation, ref world, inputDeps);
-            }
-            else if (simulation.Type == SimulationType.HavokPhysics)
-            {
-                var data = new CollisionEventJobData<T>
+                case SimulationType.UnityPhysics:
+                    // Call the scheduling method for Unity.Physics
+                    return ICollisionEventJobExtensions.ScheduleUnityPhysicsCollisionEventsJob(jobData, simulation, ref world, inputDeps);
+
+                case SimulationType.HavokPhysics:
                 {
-                    UserJobData = jobData,
-                    EventStream = ((Havok.Physics.HavokSimulation)simulation).CollisionEventStream,
-                    Bodies = world.Bodies,
-                    TimeStep = ((Havok.Physics.HavokSimulation)simulation).TimeStep,
-                    InputVelocities = ((Havok.Physics.HavokSimulation)simulation).InputVelocities
-                };
+                    var data = new CollisionEventJobData<T>
+                    {
+                        UserJobData = jobData,
+                        EventReader = ((Havok.Physics.HavokSimulation)simulation).CollisionEvents
+                    };
 
-                // Ensure the input dependencies include the end-of-simulation job, so events will have been generated
-                inputDeps = JobHandle.CombineDependencies(inputDeps, simulation.FinalSimulationJobHandle);
+                    // Ensure the input dependencies include the end-of-simulation job, so events will have been generated
+                    inputDeps = JobHandle.CombineDependencies(inputDeps, simulation.FinalSimulationJobHandle);
 
-                var parameters = new JobsUtility.JobScheduleParameters(
-                    UnsafeUtility.AddressOf(ref data),
-                    CollisionEventJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
-                return JobsUtility.Schedule(ref parameters);
+                    var parameters = new JobsUtility.JobScheduleParameters(
+                        UnsafeUtility.AddressOf(ref data),
+                        CollisionEventJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
+                    return JobsUtility.Schedule(ref parameters);
+                }
+
+                default:
+                    return inputDeps;
             }
-            return inputDeps;
         }
 
-        private unsafe struct CollisionEventJobData<T> where T : struct
+        internal unsafe struct CollisionEventJobData<T> where T : struct
         {
             public T UserJobData;
-            [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* EventStream;
-            // Disable aliasing restriction in case T has a NativeSlice of PhysicsWorld.Bodies
-            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
-            [ReadOnly] public float TimeStep;
-            [ReadOnly] public NativeSlice<Velocity> InputVelocities;
+            public HavokCollisionEvents EventReader;
         }
 
-        private struct CollisionEventJobProcess<T> where T : struct, ICollisionEventsJob
+        internal struct CollisionEventJobProcess<T> where T : struct, ICollisionEventsJobBase
         {
             static IntPtr jobReflectionData;
 
@@ -68,39 +71,9 @@ namespace Unity.Physics
             public unsafe static void Execute(ref CollisionEventJobData<T> jobData, IntPtr additionalData,
                 IntPtr bufferRangePatchData, ref JobRanges jobRanges, int jobIndex)
             {
-                var reader = new Havok.Physics.HpBlockStreamReader(jobData.EventStream);
-                while (reader.HasItems)
+                foreach (var collisionEvent in jobData.EventReader)
                 {
-                    // Read the size first
-                    int size = reader.Read<int>();
-
-                    // Peek the event data
-                    var eventData = (LowLevel.CollisionEvent*)reader.Peek();
-
-                    int numNarrowPhaseContactPoints = eventData->NumNarrowPhaseContactPoints;
-                    var narrowPhaseContactPoints = new NativeArray<ContactPoint>(numNarrowPhaseContactPoints, Allocator.Temp);
-                    for (int i = 0; i < numNarrowPhaseContactPoints; i++)
-                    {
-                        narrowPhaseContactPoints[i] = eventData->AccessContactPoint(i);
-                    }
-
-                    int bodyAIndex = eventData->BodyIndices.BodyAIndex;
-                    int bodyBIndex = eventData->BodyIndices.BodyBIndex;
-                    jobData.UserJobData.Execute(new CollisionEvent
-                    {
-                        EventData = *eventData,
-                        Entities = new EntityPair
-                        {
-                            EntityA = jobData.Bodies[bodyAIndex].Entity,
-                            EntityB = jobData.Bodies[bodyBIndex].Entity
-                        },
-                        TimeStep = jobData.TimeStep,
-                        InputVelocityA = bodyAIndex < jobData.InputVelocities.Length ? jobData.InputVelocities[bodyAIndex] : Velocity.Zero,
-                        InputVelocityB = bodyBIndex < jobData.InputVelocities.Length ? jobData.InputVelocities[bodyBIndex] : Velocity.Zero,
-                        NarrowPhaseContactPoints = narrowPhaseContactPoints
-                    });
-
-                    reader.Advance(size);
+                    jobData.UserJobData.Execute(collisionEvent);
                 }
             }
         }

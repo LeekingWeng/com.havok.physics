@@ -48,7 +48,7 @@ namespace Havok.Physics
             void* rigidBodies, int numRigidBodies, int rigidBodyStride,
             MotionData* motionDatas, int numMotionDatas, int motionDataStride,
             MotionVelocity* motionVelocities, int numMotionVelocities, int motionVelocityStride,
-            Joint* joints, int numJoints, int jointStride);
+            void* joints, int numJoints, int jointStride);
         [DllImport(k_DllPath)]
         internal static extern unsafe void HP_SyncMotionsOut(
             int worldIndex,
@@ -233,7 +233,8 @@ namespace Havok.Physics
 
                             case UnlockResult.Status.Unlocked:
                                 {
-                                    if (unlocker.Result.NumDaysRemaining < 10)
+                                    // Show the license expire warning in console (not in a dialog), but only in cases where user is playing a scene from editor
+                                    if (createDialogs && unlocker.Result.NumDaysRemaining < 10)
                                     {
                                         UnityEngine.Debug.LogWarningFormat("Havok.Physics license will expire in {0} days. Please extend it from the Unity Asset Store: {1} .",
                                             unlocker.Result.NumDaysRemaining, assetStoreLink);

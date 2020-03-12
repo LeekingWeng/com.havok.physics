@@ -1,3 +1,4 @@
+using Havok.Physics;
 using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -7,36 +8,47 @@ using Unity.Mathematics;
 
 namespace Unity.Physics
 {
+    // Interface for jobs that iterate through the list of Jacobians before they are solved
+    [JobProducerType(typeof(IHavokJacobiansJobExtensions.JacobiansJobProcess<>))]
+    public interface IJacobiansJob : IJacobiansJobBase
+    {
+    }
+
     public static class IHavokJacobiansJobExtensions
     {
-        // IJacobiansJob.Schedule() implementation for when Havok Physics is available
+        // Schedule() implementation for IJacobiansJob when Havok Physics is available
         public static unsafe JobHandle Schedule<T>(this T jobData, ISimulation simulation, ref PhysicsWorld world, JobHandle inputDeps)
-            where T : struct, IJacobiansJob
+            where T : struct, IJacobiansJobBase
         {
-            if (simulation.Type == SimulationType.UnityPhysics)
+            switch (simulation.Type)
             {
-                return IJacobiansJobExtensions.ScheduleImpl(jobData, simulation, ref world, inputDeps);
-            }
-            else if (simulation.Type == SimulationType.HavokPhysics)
-            {
-                var data = new JacobiansJobData<T>
+                case SimulationType.UnityPhysics:
+                    // Call the scheduling method for Unity.Physics
+                    return IJacobiansJobExtensions.ScheduleUnityPhysicsJacobiansJob(jobData, simulation, ref world, inputDeps);
+
+                case SimulationType.HavokPhysics:
                 {
-                    UserJobData = jobData,
-                    FixedJacobianGrid = ((Havok.Physics.HavokSimulation)simulation).FixedJacobianGrid,
-                    MovingJacobianGrid = ((Havok.Physics.HavokSimulation)simulation).MovingJacobianGrid,
-                    PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
-                    Bodies = world.Bodies,
-                    TimeStep = ((Havok.Physics.HavokSimulation)simulation).TimeStep
-                };
-                var parameters = new JobsUtility.JobScheduleParameters(
-                    UnsafeUtility.AddressOf(ref data),
-                    JacobiansJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
-                return JobsUtility.Schedule(ref parameters);
+                    var data = new JacobiansJobData<T>
+                    {
+                        UserJobData = jobData,
+                        FixedJacobianGrid = ((Havok.Physics.HavokSimulation)simulation).FixedJacobianGrid,
+                        MovingJacobianGrid = ((Havok.Physics.HavokSimulation)simulation).MovingJacobianGrid,
+                        PluginIndexToLocal = ((Havok.Physics.HavokSimulation)simulation).PluginIndexToLocal,
+                        Bodies = world.Bodies,
+                        TimeStep = ((Havok.Physics.HavokSimulation)simulation).TimeStep
+                    };
+                    var parameters = new JobsUtility.JobScheduleParameters(
+                        UnsafeUtility.AddressOf(ref data),
+                        JacobiansJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
+                    return JobsUtility.Schedule(ref parameters);
+                }
+
+                default:
+                    return inputDeps;
             }
-            return inputDeps;
         }
 
-        private unsafe struct JacobiansJobData<T> where T : struct
+        internal unsafe struct JacobiansJobData<T> where T : struct
         {
             public T UserJobData;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpGrid* FixedJacobianGrid;
@@ -48,7 +60,7 @@ namespace Unity.Physics
             public float TimeStep;
         };
 
-        private struct JacobiansJobProcess<T> where T : struct, IJacobiansJob
+        internal struct JacobiansJobProcess<T> where T : struct, IJacobiansJobBase
         {
             static IntPtr jobReflectionData;
 
@@ -79,7 +91,7 @@ namespace Unity.Physics
                 {
                     for (int i = 0; i < curGrid->m_size; i++)
                     {
-                        Havok.Physics.HpCsContactJacRange* gridRange = curGrid->m_entries + i;
+                        HpCsContactJacRange* gridRange = curGrid->m_entries + i;
                         var range = (Havok.Physics.HpLinkedRange*)UnsafeUtility.AddressOf(ref gridRange->m_range);
                         while (range != null)
                         {
@@ -114,7 +126,7 @@ namespace Unity.Physics
                                 modifiableContact.m_ContactJacobian->CoefficientOfFriction = manifoldCache->m_friction.Value;
 
                                 // Fill in friction data
-                                if (hpHeader->m_frictionType >= 3)
+                                if (HpJacHeader.hasAnyFriction(hpHeader->m_flagsAndDimB))
                                 {
                                     Havok.Physics.HpJac3dFriction* jf = hpHeader->accessJacFriction();
                                     modifiableContact.m_ContactJacobian->Friction0.AngularA = jf->m_jacDir0_angular0.xyz;
@@ -157,7 +169,7 @@ namespace Unity.Physics
                                 if (((byte)modifiableHeader.Flags & (byte)JacobianFlags.Disabled) != 0)
                                 {
                                     // Don't check the "changed" state of the jacobian - this flag is set on the contact
-                                    hpHeader->m_type |= (1 << 2) * 2; // JH_MANIFOLD_IS_NOT_NORMAL
+                                    hpHeader->m_flagsAndDimB |= 1 << 10; // JH_MANIFOLD_IS_NOT_NORMAL
                                     hpHeader->m_manifoldType = 3; // hknpManifoldType::DISABLED
                                 }
 
@@ -201,17 +213,18 @@ namespace Unity.Physics
                                         manifoldCache->m_integratedFrictionRhs = rhs4;
                                     }
 
-                                    if (hpHeader->m_frictionType >= 3)
+                                    if (HpJacHeader.hasAnyFriction(hpHeader->m_flagsAndDimB))
                                     {
                                         Math.CalculatePerpendicularNormalized(modifiableContact.Normal, out float3 dir0, out float3 dir1);
                                         float linVel0 = math.dot(surfVel.LinearVelocity, dir0);
                                         float linVel1 = math.dot(surfVel.LinearVelocity, dir1);
 
                                         // Check JH_SURFACE_VELOCITY_DIRTY flag and clear it if it was set
-                                        if ((hpHeader->m_flags & 1 << 3) != 0)
+                                        const ushort jhSurfaceVelocityDirty = 1 << 3;
+                                        if ((hpHeader->m_flagsAndDimB & jhSurfaceVelocityDirty) != 0)
                                         {
                                             *hpHeader->accessSurfaceVelocity() = new float3(linVel0, linVel1, angVelProj);
-                                            hpHeader->m_flags &= 0xF7;
+                                            hpHeader->m_flagsAndDimB &= 0xffff ^ jhSurfaceVelocityDirty;
                                         }
                                         else
                                         {
@@ -243,7 +256,7 @@ namespace Unity.Physics
                                     hpHeader->m_normal.xyz = modifiableContact.Normal;
                                     manifoldCache->m_friction.Value = modifiableContact.CoefficientOfFriction;
 
-                                    if (hpHeader->m_frictionType >= 3)
+                                    if (HpJacHeader.hasAnyFriction(hpHeader->m_flagsAndDimB))
                                     {
                                         Havok.Physics.HpJac3dFriction* jf = hpHeader->accessJacFriction();
                                         jf->m_jacDir0_angular0.xyz = modifiableContact.Friction0.AngularA;

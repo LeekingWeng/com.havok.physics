@@ -1,16 +1,29 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [0.1.2-preview] - 9999-12-31
+## [0.2.0-preview] - 2020-03-12
 
 ### Changed
+- `HavokSimulation.ScheduleStepJobs()` now takes `SimulationCallbacks` and `threadCountHint` separately as input arguments.
+- `Simulation.CollisionEvents` and `Simulation.TriggerEvents` can now be used to iterate through the events directly using a `foreach` loop, rather than only via `ICollisionEventsJob` and `ITriggerEventsJob`.
 
 ### Fixed
+- Android ARM64 platform is now supported. Please see [Supported platforms](Documentation~/platforms.md) for details.
+- Jobs implementing ICollisionEventsJob, ITriggerEventsJob, IContactsJob, IBodyPairsJob or IJacobiansJob can now be Burst-compiled in both editor and standalone player.
+- Duplicate jobs for debug display (like FinishDisplayCollisionEventsJob) are no longer being scheduled, since only HavokPhysics variant of their systems (DisplayCollisionEventsSystem) is now running and covers both HavokPhysics and UnityPhysics simulation.
+
+## [0.1.2-preview] - 2020-01-10
+
+### Changed
+- Unity Pro users now require a subscription, which is available in the [Asset Store](https://aka.ms/hkunityassetstore).
+
+### Fixed
+- Reduced the sync tolerance. Now handling smaller deltas in position, rotation and velocity.
 - Fixed the issue of uninitialized array when scheduling collision event jobs with no dynamic bodies in the scene.
 - Fixed an issue where contacts were not being correctly disabled in an IContactsJob.
 - The Havok Visual Debugger (VDB) is now always stepped, even when there are no dynamic bodies in the scene.
 - Fixed the job handle ordering during step. This fixes errors when simulation callbacks were added.
-- The VDB is now correctly initialised with the port supplied.
+- Fixed the VDB initialization to use the supplied port.
 
 ## [0.1.1-preview] - 2019-09-20
 

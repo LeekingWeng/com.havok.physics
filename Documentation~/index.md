@@ -41,6 +41,6 @@ Compared to Unity Physics simulation, Havok Physics for Unity offers:
 
 ## Havok Physics SDK License
 
-Havok Physics for Unity is a binary-only distribution of Havok Physics (2019.1.0) that has the same industry-standard power but without access to C++ source code (known as "Base and Product" access) or direct support from Havok.
+Havok Physics for Unity is a binary-only distribution of Havok Physics (2019.2.0) that has the same industry-standard power but without access to C++ source code (known as "Base and Product" access) or direct support from Havok.
 
 If your project requires either support from Havok or C++ source access, [contact Havok](mailto:hkunitysales@microsoft.com).

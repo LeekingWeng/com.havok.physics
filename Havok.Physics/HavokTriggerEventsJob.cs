@@ -1,50 +1,57 @@
 using System;
-using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.Physics
 {
+    // Interface for jobs that iterate through the list of trigger events produced by the solver.
+    [JobProducerType(typeof(IHavokTriggerEventsJobExtensions.TriggerEventJobProcess<>))]
+    public interface ITriggerEventsJob : ITriggerEventsJobBase
+    {
+    }
+
     public static class IHavokTriggerEventsJobExtensions
     {
-        // ITriggerEventsJob.Schedule() implementation for when Havok Physics is available
+        // Schedule() implementation for ITriggerEventsJob when Havok Physics is available
         public static unsafe JobHandle Schedule<T>(this T jobData, ISimulation simulation, ref PhysicsWorld world, JobHandle inputDeps)
             where T : struct, ITriggerEventsJob
         {
-            if (simulation.Type == SimulationType.UnityPhysics)
+            switch (simulation.Type)
             {
-                return ITriggerEventJobExtensions.ScheduleImpl(jobData, simulation, ref world, inputDeps);
-            }
-            else if (simulation.Type == SimulationType.HavokPhysics)
-            {
-                var data = new TriggerEventJobData<T>
+                case SimulationType.UnityPhysics:
+                    // Call the scheduling method for Unity.Physics
+                    return ITriggerEventJobExtensions.ScheduleUnityPhysicsTriggerEventsJob(jobData, simulation, ref world, inputDeps);
+
+                case SimulationType.HavokPhysics:
                 {
-                    UserJobData = jobData,
-                    EventStream = ((Havok.Physics.HavokSimulation)simulation).TriggerEventStream,
-                    Bodies = world.Bodies
-                };
+                    var data = new TriggerEventJobData<T>
+                    {
+                        UserJobData = jobData,
+                        EventReader = ((Havok.Physics.HavokSimulation)simulation).TriggerEvents
+                    };
 
-                // Ensure the input dependencies include the end-of-simulation job, so events will have been generated
-                inputDeps = JobHandle.CombineDependencies(inputDeps, simulation.FinalSimulationJobHandle);
+                    // Ensure the input dependencies include the end-of-simulation job, so events will have been generated
+                    inputDeps = JobHandle.CombineDependencies(inputDeps, simulation.FinalSimulationJobHandle);
 
-                var parameters = new JobsUtility.JobScheduleParameters(
-                    UnsafeUtility.AddressOf(ref data),
-                    TriggerEventJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
-                return JobsUtility.Schedule(ref parameters);
+                    var parameters = new JobsUtility.JobScheduleParameters(
+                        UnsafeUtility.AddressOf(ref data),
+                        TriggerEventJobProcess<T>.Initialize(), inputDeps, ScheduleMode.Batched);
+                    return JobsUtility.Schedule(ref parameters);
+                }
+
+                default:
+                    return inputDeps;
             }
-            return inputDeps;
         }
 
-        private unsafe struct TriggerEventJobData<T> where T : struct
+        internal unsafe struct TriggerEventJobData<T> where T : struct
         {
             public T UserJobData;
-            [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* EventStream;
-            // Disable aliasing restriction in case T has a NativeSlice of PhysicsWorld.Bodies
-            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
+            public HavokTriggerEvents EventReader;
         }
 
-        private struct TriggerEventJobProcess<T> where T : struct, ITriggerEventsJob
+        internal struct TriggerEventJobProcess<T> where T : struct, ITriggerEventsJobBase
         {
             static IntPtr jobReflectionData;
 
@@ -64,22 +71,9 @@ namespace Unity.Physics
             public unsafe static void Execute(ref TriggerEventJobData<T> jobData, IntPtr additionalData,
                 IntPtr bufferRangePatchData, ref JobRanges jobRanges, int jobIndex)
             {
-                var reader = new Havok.Physics.HpBlockStreamReader(jobData.EventStream);
-                while (reader.HasItems)
+                foreach (var triggerEvent in jobData.EventReader)
                 {
-                    var eventData = (LowLevel.TriggerEvent*)reader.Peek();
-
-                    jobData.UserJobData.Execute(new TriggerEvent
-                    {
-                        EventData = *eventData,
-                        Entities = new EntityPair
-                        {
-                            EntityA = jobData.Bodies[eventData->BodyIndices.BodyAIndex].Entity,
-                            EntityB = jobData.Bodies[eventData->BodyIndices.BodyBIndex].Entity
-                        }
-                    });
-
-                    reader.Advance(sizeof(LowLevel.TriggerEvent));
+                    jobData.UserJobData.Execute(triggerEvent);
                 }
             }
         }
