@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.2.1-preview] - 2020-03-19
+
+### Fixed
+- Changing motion type of many bodies in a single frame no longer results in a crash.
+- Trigger events are now consistently raised for penetrating bodies.
+- Asking for collision/trigger events in scenes with no dynamic bodies no longer throws errors.
+- Android ARM64 and ARMv7 can now be built together without any special actions. Android-specific instructions are removed from [Supported platforms](Documentation~/platforms.md).
+
 ## [0.2.0-preview] - 2020-03-12
 
 ### Changed

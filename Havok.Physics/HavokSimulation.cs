@@ -280,7 +280,7 @@ namespace Havok.Physics
                 Bodies = world.Bodies;
 
                 int numDynamicBodies = world.NumDynamicBodies;
-                if (InputVelocities.Length < numDynamicBodies)
+                if (!InputVelocities.IsCreated || InputVelocities.Length < numDynamicBodies)
                 {
                     if (InputVelocities.IsCreated)
                     {

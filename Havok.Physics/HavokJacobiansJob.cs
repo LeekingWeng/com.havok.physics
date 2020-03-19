@@ -203,7 +203,7 @@ namespace Unity.Physics
                                     float angVelProj = math.dot(surfVel.AngularVelocity, modifiableContact.Normal);
                                     if (manifoldCache != null)
                                     {
-                                        float frictionRhs = manifoldCache->m_frictionRhsMultiplier.Value;
+                                        float frictionRhs = manifoldCache->getFrictionRhsMultiplierValue();
                                         float frictRhsMul = frictionRhs * jobData.TimeStep;
 
                                         // Update cached integrated friction rhs
@@ -239,7 +239,7 @@ namespace Unity.Physics
                                             float dRhs1 = jf->m_jacDir1_linear0.w;
                                             float dRhs = jf->m_jacAng_angular1.w;
 
-                                            float frictRhsMul = hpHeader->m_manifoldCollisionCache->m_frictionRhsMultiplier.Value;
+                                            float frictRhsMul = hpHeader->m_manifoldCollisionCache->getFrictionRhsMultiplierValue();
                                             dRhs0 -= frictRhsMul * linVel0;
                                             dRhs1 -= frictRhsMul * linVel1;
                                             dRhs -= frictRhsMul * angVelProj;

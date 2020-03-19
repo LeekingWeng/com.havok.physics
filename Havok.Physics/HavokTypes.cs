@@ -1,18 +1,12 @@
 // This file contains mirror structures for Havok SDK structures that are used in Havok Physics code.
-
-#if UNITY_64 || UNITY_EDITOR_64 || UNITY_PS4 || UNITY_SWITCH || UNITY_XBOXONE || UNITY_IOS || UNITY_ANDROID
-#define HK_IS_64BIT
-#endif
-
-#if HK_ANDROID_32
-// This is a custom define that tells us we're building Android ARMv7 (ARM64 is assumed for Android otherwise)
-#undef HK_IS_64BIT
-#endif
+// Caution: Defines for 64bit platforms (like UNITY_64) cannot be relied upon when building Android, since ARMv7 and ARM64 can be selected
+// at the same time and Unity is doing 1 cpp code generation pass which doesn't carry defines into cpp.
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_XBOXONE
 // MSVC compiler cannot use the padding from base class to put derived class members
-#define HK_NEEDS_EXTRA_STRUCT_PACKING
+#define HK_IS_MSVC
 #endif
+
 using System;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -20,6 +14,16 @@ using System.Runtime.InteropServices;
 
 namespace Havok.Physics
 {
+    // Class containing utility methods related to current build platform
+    static class BuildPlatformUtil
+    {
+        // Returns whether we're building code for 32bit platform (performs a runtime check)
+        internal static unsafe bool is32Bit()
+        {
+            return sizeof(void*) == 4;
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpIntArray
     {
@@ -42,20 +46,32 @@ namespace Havok.Physics
             private IntPtr m_AllocatorDebug;
             private IntPtr m_BlockStreamDebug;
 
-#if !HK_IS_64BIT
-            private fixed byte m_padding32[12];
-#endif
-
-            public fixed byte Data[1];
+            // SDK has a 16B-aligned array with data here, which means there is
+            // 12 Bytes (1 + 11) of padding on 32bit platforms and no padding on 64bit (data starts immediately)
+            private fixed byte m_DataStart64Bit[1];
+            private fixed byte m_Padding32Bit[11];
+            public fixed byte m_DataStart32Bit[1];
 #pragma warning restore CS0169, CS0649
 
             public int NumElements => (int)(m_NumElementsAndBytesUsed & 0xffff);
             public Block* Next => m_NextBlock;
             public byte* Start()
             {
-                fixed (byte* d = Data)
+                if (BuildPlatformUtil.is32Bit())
                 {
-                    return d;
+                    // 32bit
+                    fixed (byte* d = m_DataStart32Bit)
+                    {
+                        return d;
+                    }
+                }
+                else
+                {
+                    // 64bit
+                    fixed (byte* d = m_DataStart64Bit)
+                    {
+                        return d;
+                    }
                 }
             }
         }
@@ -66,20 +82,32 @@ namespace Havok.Physics
         byte m_PartiallyFreed;
         byte m_IsLocked;
 
-        // m_Data needs to be 16B-aligned
-#if HK_IS_64BIT
-        fixed byte m_Padding16[2];
-#else
-        fixed byte m_Padding16[6];
-#endif
+        // SDK has a 16B-aligned in-place array here, but we only care about the pointer to the data (actually a Block**)
+        // There's 2 Bytes of padding on 64bit platforms and 6B on 32bit, before data pointer
+        fixed byte m_CommonPadding[2];
 
-        Block** m_Data;
+        // Data pointer on 64bit platforms is here
+        Block** m_Data64Bit;
+
+        // Data pointer on 32bit platforms is here: we had 2B common padding + 4B for m_Data64Bit(unused in 32bit, effectively padding)
+        Block** m_Data32Bit;
+
+        // There's more fields of in-place array here, but we don't care about them
 #pragma warning restore CS0649, CS0169
 
         public bool HasElements => m_NumTotalElements != 0;
         public Block* FirstBlock()
         {
-            return m_Data[0];
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                return m_Data32Bit[0];
+            }
+            else
+            {
+                // 64bit
+                return m_Data64Bit[0];
+            }
         }
     }
 
@@ -120,17 +148,17 @@ namespace Havok.Physics
 
         internal HpBlockStreamReader(HpLinkedRange* range)
         {
-            m_CurrentBlock = range->m_block;
+            m_CurrentBlock = range->m_blockStreamRange.m_block;
             if (m_CurrentBlock != null)
             {
-                m_CurrentPtr = m_CurrentBlock->Data + range->m_startByteOffset;
+                m_CurrentPtr = m_CurrentBlock->Start() + range->m_blockStreamRange.m_startByteOffset;
             }
             else
             {
                 m_CurrentPtr = null;
             }
-            m_NumElementsLeftInCurrentBlock = range->m_startBlockNumElements;
-            m_NumElementsLeft = range->m_numElements;
+            m_NumElementsLeftInCurrentBlock = range->m_blockStreamRange.m_startBlockNumElements;
+            m_NumElementsLeft = range->m_blockStreamRange.m_numElements;
             m_LastPtr = null;
         }
 
@@ -225,11 +253,9 @@ namespace Havok.Physics
         [NativeDisableUnsafePtrRestriction] IntPtr m_MaterialA;
         [NativeDisableUnsafePtrRestriction] IntPtr m_MaterialB;
 
-#if HK_IS_64BIT
-        fixed byte m_Padding2[8];
-#else
-        fixed byte m_Padding2[4];
-#endif
+        // Padding is 8B on 64bit and 4B on 32bit
+        void* m_Padding2;
+
         internal fixed float m_Scratch[16];
 #pragma warning restore CS0649
 #pragma warning restore CS0169
@@ -282,7 +308,7 @@ namespace Havok.Physics
         public byte m_propertiesStartOffsetDiv16;
         public uint m_propertyOffsets;
 
-        // hknpManifoldCollisionCache's fields
+        // hknpManifoldCollisionCache's fields (starts at 32B)
         IntPtr m_contactJacobianBlock;
         ushort m_contactJacobianOffset;
         byte m_fractionOfClippedImpulseToApply;
@@ -295,22 +321,97 @@ namespace Havok.Physics
         public HPHalf m_restitution;
         public HPHalf m_maxImpulse;
         public HPHalf m_maximumPenetration;
-#if HK_IS_64BIT
+
+        // SDK has 2B padding on 64bit and 6B on 32bit (aligns m_manifoldSolverInfo to start at 60B and end at 64B)
         internal fixed byte m_padding0[2];
-#else
-        internal fixed byte m_padding0[6];
-#endif
 
-        // m_manifoldSolverInfo
-        public HPHalf m_frictionRhsMultiplier;
-        ushort m_flags;
+        // m_manifoldSolverInfo on 64bit 
+        public HPHalf m_frictionRhsMultiplier64Bit;
+        ushort m_flags64Bit;
 
-        float4 m_impulsesApplied;
+        // m_manifoldSolverInfo on 32bit is here, where we currently have automatic padding before m_impulsesApplied
+
+        // m_impulsesApplied is float4 in SDK, but we're using double2 in order to get 4B padding before it on 32bit (m_manifoldSolverInfo, see comment above)
+        double2 m_impulsesApplied;
         float4 m_allowedInitialPenetrations;
         float4 m_constraintBiases;
         public float4 m_integratedFrictionRhs;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        public float getFrictionRhsMultiplierValue()
+        {
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                return accessFrictionRhsMultiplier32Bit()->Value;
+            }
+            else
+            {
+                // 64bit
+                return m_frictionRhsMultiplier64Bit.Value;
+            }
+        }
+
+        public void setFrictionRhsMultiplierValue(float value)
+        {
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                accessFrictionRhsMultiplier32Bit()->Value = value;
+            }
+            else
+            {
+                // 64bit
+                m_frictionRhsMultiplier64Bit.Value = value;
+            }
+        }
+
+        public ushort getFlags()
+        {
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                return *accessFlags32Bit();
+            }
+            else
+            {
+                // 64bit
+                return m_flags64Bit;
+            }
+        }
+
+        public void setFlags(ushort value)
+        {
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                *accessFlags32Bit() = value;
+            }
+            else
+            {
+                // 64bit
+                m_flags64Bit = value;
+            }
+        }
+
+        public float4 getImpulsesApplied()
+        {
+            // Interpret m_impulsesApplied properly (as float4)
+            fixed (double2* impulsesAppliedDouble2Ptr = &m_impulsesApplied)
+            {
+                return *((float4*)impulsesAppliedDouble2Ptr);
+            }
+        }
+
+        public void setImpulsesApplied(float4 value)
+        {
+            // Interpret m_impulsesApplied properly (as float4)
+            fixed (double2* impulsesAppliedDouble2Ptr = &m_impulsesApplied)
+            {
+                *((float4*)impulsesAppliedDouble2Ptr) = value;
+            }
+        }
 
         internal unsafe HpPerManifoldProperty* GetCustomPropertyStorage()
         {
@@ -325,6 +426,26 @@ namespace Havok.Physics
             HpPerManifoldProperty* cdp = (Havok.Physics.HpPerManifoldProperty*)(((byte*)UnsafeUtility.AddressOf(ref this)) + customDataOffset);
             return cdp;
         }
+
+        private HPHalf* accessFrictionRhsMultiplier32Bit()
+        {
+            fixed (ushort* flagsPtr = &m_flags64Bit)
+            {
+                // m_frictionRhsMultiplier on 32bit is right after m_flags64Bit (they're both 2B long), so increment flagsPtr by 1
+                ushort* frictionRhsMultiplierShortPtr = flagsPtr + 1;
+                return (HPHalf*)frictionRhsMultiplierShortPtr;
+            }
+        }
+
+        private ushort* accessFlags32Bit()
+        {
+            fixed (ushort* flagsPtr = &m_flags64Bit)
+            {
+                // m_flags on 32bit starts 4B after m_flags64Bit (m_frictionRhsMultiplier for 32bit is between them, all 3 are 2B long), so increment flagsPtr by 2
+                return flagsPtr + 2;
+            }
+        }
+
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -389,12 +510,12 @@ namespace Havok.Physics
         internal float4 m_normal;
 
         internal HPManifoldCollisionCache* m_manifoldCollisionCache;
-#if !HK_IS_64BIT
-        uint m_padding;
-#endif
 
-        uint m_solverVelIdA;
-        uint m_solverVelIdB;
+        // 4B padding on 32bit
+
+        // m_solverVelIdA and m_solverVelIdB are uint in SDK, but we're using them together as double in order to get 4B padding on 32bit automatically (before the field)
+        // Please use accessSolverVelIdA() and accessSolverVelIdB() to read/write values
+        double m_solverVelIdAB;
 
         fixed ushort m_referenceOrientation[4];
         fixed ushort m_normalDotArm[4];
@@ -474,6 +595,24 @@ namespace Havok.Physics
             int offset = sizeOfUpToInertiaFactor(m_numPoints, m_flagsAndDimB, m_modTypes);
             return (Unity.Physics.MassFactors*)(baseJac + offset);
         }
+
+        unsafe public uint* accessSolverVelIdA()
+        {
+            fixed (double* solverVelIdsPtr = &m_solverVelIdAB)
+            {
+                // solverVelIdA is stored first in m_solverVelIdAB
+                return (uint*)solverVelIdsPtr;
+            }
+        }
+
+        unsafe public uint* accessSolverVelIdB()
+        {
+            fixed (double* solverVelIdsPtr = &m_solverVelIdAB)
+            {
+                // solverVelIdB is stored second in m_solverVelIdAB, so increment solverVelIdsPtr by 1
+                return ((uint*)solverVelIdsPtr) + 1;
+            }
+        }
     };
 
     [StructLayout(LayoutKind.Sequential)]
@@ -485,38 +624,49 @@ namespace Havok.Physics
 #pragma warning restore CS0649
     };
 
-    // This struct contains fields from SDK's hkBlockStream::LinkedRange
+    // This struct contains fields from SDK's hkBlockStream::Range
+#if HK_IS_MSVC
+    // On MSVC (both 32 and 64bit) size is 16B (4B padding automatically added at the end on 32bit).
+    [StructLayout(LayoutKind.Sequential, Size = 16)]
+#else
+    // On non-MSVC size is default (12B on 32bit, 16B on 64bit).
     [StructLayout(LayoutKind.Sequential)]
-    unsafe struct HpLinkedRange
+#endif
+    unsafe struct HpBlockStreamRange
     {
-#pragma warning disable CS0649
-        // hkBlockStream::Range fields
         internal HpBlockStream.Block* m_block;
         internal ushort m_startByteOffset;
         internal ushort m_startBlockNumElements;
         internal int m_numElements;
-#if HK_NEEDS_EXTRA_STRUCT_PACKING && !HK_IS_64BIT
-        // Additional padding for 32bit MSVC
-        fixed byte m_padding0[4];
+    }
+
+    // This struct contains fields from SDK's hkBlockStream::LinkedRange
+#if HK_IS_MSVC
+    // On MSVC (both 32 and 64bit) size is 32B (automatic padding at the end is 12B on 32bit and 8B on 64bit).
+    [StructLayout(LayoutKind.Sequential, Size = 32)]
+#else
+    // On non-MSVC size is default (16B on 32bit, 24B on 64bit).
+    [StructLayout(LayoutKind.Sequential)]
 #endif
+    unsafe struct HpLinkedRange
+    {
+#pragma warning disable CS0649
+        // hkBlockStream::Range is base class in SDK
+        internal HpBlockStreamRange m_blockStreamRange;
 
         // hkBlockStream::LinkedRange fields
         internal HpLinkedRange* m_next;
-#if HK_NEEDS_EXTRA_STRUCT_PACKING
-    #if HK_IS_64BIT
-        // Additional padding for 64bit MSVC
-        fixed byte m_padding1[8];
-    #else
-        // Additional padding for 32bit MSVC
-        fixed byte m_padding1[12];
-    #endif
-#endif
-
 #pragma warning restore CS0649
     };
 
     // This struct contains fields from SDK's hknpCsJacRange
-    [StructLayout(LayoutKind.Sequential)]
+#if HK_IS_MSVC
+    // On MSVC (both 32 and 64bit) size is 48B (automatic padding 8B at the end on both)
+    [StructLayout(LayoutKind.Sequential, Size = 48)]
+#else
+    // On 64bit non-MSVC size is 32B. On 32bit non-MSVC, struct dsize is 24, but sizeof is 32 (because of packing alignment), so there's 8B automatic padding at the end.
+    [StructLayout(LayoutKind.Sequential, Size = 32)]
+#endif
     unsafe struct HpCsContactJacRange
     {
 #pragma warning disable CS0649
@@ -525,13 +675,6 @@ namespace Havok.Physics
         // Padding after m_solverId
         fixed byte m_padding0[3];
         int m_solveStateBytes;
-
-#if HK_NEEDS_EXTRA_STRUCT_PACKING || !HK_IS_64BIT
-        // Padding to make this struct 16B-aligned on MSVC (both 32 and 64bit) and 32bit non-MSVC
-        // On 32bit non-MSVC, struct dsize is 24, but sizeof is 32 (because of packing alignment), so we need to add padding here.
-        fixed byte m_padding1[8];
-#endif
-
 #pragma warning restore CS0649
     };
 
