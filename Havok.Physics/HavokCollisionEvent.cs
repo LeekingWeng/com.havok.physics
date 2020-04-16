@@ -10,15 +10,15 @@ namespace Unity.Physics
     public unsafe struct HavokCollisionEvents /* : IEnumerable<CollisionEvent> */
     {
         [NativeDisableUnsafePtrRestriction]
-        private readonly HpBlockStream* m_EventDataStream;
+        private readonly HpLinkedRange* m_EventDataRange;
 
         private readonly NativeSlice<RigidBody> m_Bodies;
         private readonly NativeSlice<Velocity> m_InputVelocities;
         private readonly float m_TimeStep;
 
-        internal HavokCollisionEvents(HpBlockStream* eventDataStream, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
+        internal HavokCollisionEvents(HpLinkedRange* eventDataRange, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
         {
-            m_EventDataStream = eventDataStream;
+            m_EventDataRange = eventDataRange;
             m_Bodies = bodies;
             m_InputVelocities = inputVelocities;
             m_TimeStep = timeStep;
@@ -26,11 +26,12 @@ namespace Unity.Physics
 
         public Enumerator GetEnumerator()
         {
-            return new Enumerator(m_EventDataStream, m_Bodies, m_InputVelocities, m_TimeStep);
+            return new Enumerator(m_EventDataRange, m_Bodies, m_InputVelocities, m_TimeStep);
         }
 
         public struct Enumerator /* : IEnumerator<CollisionEvent> */
         {
+            private HpLinkedRange* m_Range;
             private HpBlockStreamReader m_Reader;
             private CollisionEventDataRef m_Current;
 
@@ -43,9 +44,10 @@ namespace Unity.Physics
                 get => m_Current.Value.CreateCollisionEvent(m_TimeStep, m_Bodies, m_InputVelocities);
             }
 
-            internal Enumerator(HpBlockStream* stream, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
+            internal Enumerator(HpLinkedRange* range, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
             {
-                m_Reader = new HpBlockStreamReader(stream);
+                m_Range = range;
+                m_Reader = new HpBlockStreamReader(m_Range);
 
                 m_Bodies = bodies;
                 m_InputVelocities = inputVelocities;
@@ -59,6 +61,12 @@ namespace Unity.Physics
 
             public bool MoveNext()
             {
+                if (!m_Reader.HasItems && m_Range->m_next != null)
+                {
+                    m_Range = m_Range->m_next;
+                    m_Reader = new HpBlockStreamReader(m_Range);
+                }
+
                 if (m_Reader.HasItems)
                 {
                     // Read the size first

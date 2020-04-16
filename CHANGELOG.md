@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.2.2-preview] - 2020-04-16
+
+### Changed
+- `HavokSimulation.StepImmediate()` is now provided and can be wrapped in a single Burst compiled job for lightweight stepping logic; however, it doesn't support callbacks; if callbacks are needed, one should implement the physics step using a set of function calls that represent different phases of the physics engine and add customization logic in between these calls; this should all be wrapped in a Burst compiled job; check `HavokSimulation.StepImmediate()` for the full list of functions that need to be called
+
+### Fixed
+- Fixed a crash that would occur when adding a static body, while the AABB of an existing dynamic body contains world origin (0, 0, 0).
+
 ## [0.2.1-preview] - 2020-03-19
 
 ### Fixed
