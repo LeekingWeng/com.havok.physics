@@ -1,6 +1,18 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.3.0-preview.1] - 2020-06-18
+
+### Changed
+- Updated minimum Unity Editor version from `2019.3.0f1` to `2019.4.0f1`
+- Updated Unity Physics from `0.3.0-preview` to `0.4.0-preview.4`
+- Removed expired API `HavokSimulation.ScheduleStepJobs()` signature without callbacks and thread count hint.
+
+### Fixed
+- Fixed a crash when number of solver iterations is bigger than 255.
+- Fixed incorrect contact point positions reported through collision events.
+- Fixed behavior of joints to properly incorporate provided `Constraint.SpringDamping` and `Constraint.SpringFrequency`.
+
 ## [0.2.2-preview] - 2020-04-16
 
 ### Changed

@@ -52,7 +52,7 @@ namespace Havok.Physics.Authoring
         };
 
         private Entity m_ConvertedEntity = Entity.Null;
-        private EntityManager m_ConvertedEntityManager = null;
+        private EntityManager m_ConvertedEntityManager;
 
         void IConvertGameObjectToEntity.Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
         {

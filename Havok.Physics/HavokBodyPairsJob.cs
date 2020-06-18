@@ -49,8 +49,8 @@ namespace Unity.Physics
             public T UserJobData;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* BlockStreamStart;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpIntArray* PluginIndexToLocal;
-            // Disable aliasing restriction in case T has a NativeSlice of PhysicsWorld.Bodies
-            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
+            // Disable aliasing restriction in case T has a NativeArray of PhysicsWorld.Bodies
+            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeArray<RigidBody> Bodies;
         }
 
         internal struct BodyPairsJobProcess<T> where T : struct, IBodyPairsJobBase
@@ -83,21 +83,21 @@ namespace Unity.Physics
                 while (blockStreamReader.HasItems)
                 {
                     BodyIndexPair indices = blockStreamReader.Read<BodyIndexPair>(); // Really an hknpBodyIdPair
-                    int bodyAIndex = pluginIndexToLocal[indices.BodyAIndex & 0x00ffffff];
-                    int bodyBIndex = pluginIndexToLocal[indices.BodyBIndex & 0x00ffffff];
+                    int bodyIndexA = pluginIndexToLocal[indices.BodyIndexA & 0x00ffffff];
+                    int bodyIndexB = pluginIndexToLocal[indices.BodyIndexB & 0x00ffffff];
 
                     var pair = new ModifiableBodyPair
                     {
-                        BodyIndices = new BodyIndexPair { BodyAIndex = bodyAIndex, BodyBIndex = bodyBIndex },
-                        Entities = new EntityPair
+                        BodyIndexPair = new BodyIndexPair { BodyIndexA = bodyIndexA, BodyIndexB = bodyIndexB },
+                        EntityPair = new EntityPair
                         {
-                            EntityA = jobData.Bodies[bodyAIndex].Entity,
-                            EntityB = jobData.Bodies[bodyBIndex].Entity
+                            EntityA = jobData.Bodies[bodyIndexA].Entity,
+                            EntityB = jobData.Bodies[bodyIndexB].Entity
                         }
                     };
                     jobData.UserJobData.Execute(ref pair);
 
-                    if (pair.BodyIndices.BodyAIndex == -1 || pair.BodyIndices.BodyBIndex == -1)
+                    if (pair.BodyIndexA == -1 || pair.BodyIndexB == -1)
                     {
                         blockStreamReader.Write(BodyIndexPair.Invalid);
                     }

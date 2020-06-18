@@ -12,21 +12,20 @@ namespace Unity.Physics
         [NativeDisableUnsafePtrRestriction]
         private readonly HpLinkedRange* m_EventDataRange;
 
-        private readonly NativeSlice<RigidBody> m_Bodies;
-        private readonly NativeSlice<Velocity> m_InputVelocities;
+        private readonly NativeArray<Velocity> m_InputVelocities;
         private readonly float m_TimeStep;
 
-        internal HavokCollisionEvents(HpLinkedRange* eventDataRange, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
+        internal HavokCollisionEvents(HpLinkedRange* eventDataRange, NativeArray<Velocity> inputVelocities, float timeStep)
         {
             m_EventDataRange = eventDataRange;
-            m_Bodies = bodies;
+
             m_InputVelocities = inputVelocities;
             m_TimeStep = timeStep;
         }
 
         public Enumerator GetEnumerator()
         {
-            return new Enumerator(m_EventDataRange, m_Bodies, m_InputVelocities, m_TimeStep);
+            return new Enumerator(m_EventDataRange, m_InputVelocities, m_TimeStep);
         }
 
         public struct Enumerator /* : IEnumerator<CollisionEvent> */
@@ -35,21 +34,19 @@ namespace Unity.Physics
             private HpBlockStreamReader m_Reader;
             private CollisionEventDataRef m_Current;
 
-            private readonly NativeSlice<RigidBody> m_Bodies;
-            private readonly NativeSlice<Velocity> m_InputVelocities;
+            private readonly NativeArray<Velocity> m_InputVelocities;
             private readonly float m_TimeStep;
 
             public CollisionEvent Current
             {
-                get => m_Current.Value.CreateCollisionEvent(m_TimeStep, m_Bodies, m_InputVelocities);
+                get => m_Current.Value.CreateCollisionEvent(m_TimeStep, m_InputVelocities);
             }
 
-            internal Enumerator(HpLinkedRange* range, NativeSlice<RigidBody> bodies, NativeSlice<Velocity> inputVelocities, float timeStep)
+            internal Enumerator(HpLinkedRange* range, NativeArray<Velocity> inputVelocities, float timeStep)
             {
                 m_Range = range;
                 m_Reader = new HpBlockStreamReader(m_Range);
 
-                m_Bodies = bodies;
                 m_InputVelocities = inputVelocities;
                 m_TimeStep = timeStep;
 

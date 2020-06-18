@@ -50,8 +50,8 @@ namespace Unity.Physics
             public T UserJobData;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpBlockStream* ManifoldStream;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpIntArray* PluginIndexToLocal;
-            // Disable aliasing restriction in case T has a NativeSlice of PhysicsWorld.Bodies
-            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
+            // Disable aliasing restriction in case T has a NativeArray of PhysicsWorld.Bodies
+            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeArray<RigidBody> Bodies;
         }
 
         internal struct ContactsJobProcess<T> where T : struct, IContactsJobBase
@@ -81,19 +81,19 @@ namespace Unity.Physics
                     var header = (Havok.Physics.HpManifoldStreamHeader*)reader.ReadPtr<Havok.Physics.HpManifoldStreamHeader>();
                     int numManifolds = header->NumManifolds;
 
-                    int bodyAIndex = pluginIndexToLocal[header->BodyIds.BodyAIndex & 0x00ffffff];
-                    int bodyBIndex = pluginIndexToLocal[header->BodyIds.BodyBIndex & 0x00ffffff];
+                    int bodyIndexA = pluginIndexToLocal[header->BodyIds.BodyIndexA & 0x00ffffff];
+                    int bodyIndexB = pluginIndexToLocal[header->BodyIds.BodyIndexB & 0x00ffffff];
 
                     var userHeader = new ModifiableContactHeader();
                     userHeader.ContactHeader.BodyPair = new BodyIndexPair
                     {
-                        BodyAIndex = bodyAIndex,
-                        BodyBIndex = bodyBIndex
+                        BodyIndexA = bodyIndexA,
+                        BodyIndexB = bodyIndexB
                     };
-                    userHeader.Entities = new EntityPair
+                    userHeader.EntityPair = new EntityPair
                     {
-                        EntityA = jobData.Bodies[bodyAIndex].Entity,
-                        EntityB = jobData.Bodies[bodyBIndex].Entity
+                        EntityA = jobData.Bodies[bodyIndexA].Entity,
+                        EntityB = jobData.Bodies[bodyIndexB].Entity
                     };
 
                     while (numManifolds-- > 0)

@@ -7,6 +7,9 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
+#if !UNITY_ENTITIES_0_12_OR_NEWER
+using UnsafeUtility = Unity.Physics.UnsafeUtility;
+#endif
 
 namespace Havok.Physics
 {
@@ -27,11 +30,6 @@ namespace Havok.Physics
 
     public struct SimulationContext : IDisposable
     {
-        // This container is read-only and is only used to get the entity for a given rigid body
-        // when reporting collision events. However, if SimulationContext is stored next to SimulationStepInput
-        // in a job, aliasing check will complain both have the same bodies array.
-        [NativeDisableContainerSafetyRestriction]
-        internal NativeSlice<RigidBody> Bodies;
         internal float TimeStep;
         internal NativeArray<Velocity> InputVelocities;
 
@@ -48,7 +46,6 @@ namespace Havok.Physics
             // If it remains locked, the simulation will do nothing.
             Plugin.EnsureUnlocked();
 
-            Bodies = default;
             TimeStep = default;
             InputVelocities = default;
 
@@ -67,8 +64,6 @@ namespace Havok.Physics
 
         public void Reset(ref PhysicsWorld world, UnityEngine.Camera camera = null)
         {
-            Bodies = world.Bodies;
-
             int numDynamicBodies = world.NumDynamicBodies;
             if (!InputVelocities.IsCreated || InputVelocities.Length < numDynamicBodies)
             {
@@ -131,10 +126,8 @@ namespace Havok.Physics
         internal unsafe HpGrid* MovingJacobianGrid => PhysicsStepContext->jacMovingGrid;
         internal float TimeStep => m_SimulationContext.TimeStep;
 
-        public unsafe HavokCollisionEvents CollisionEvents =>
-            new HavokCollisionEvents(CollisionEventsRange, m_SimulationContext.Bodies, m_SimulationContext.InputVelocities, TimeStep);
-        public unsafe HavokTriggerEvents TriggerEvents =>
-            new HavokTriggerEvents(TriggerEventsRange, m_SimulationContext.Bodies);
+        public unsafe HavokCollisionEvents CollisionEvents => new HavokCollisionEvents(CollisionEventsRange, m_SimulationContext.InputVelocities, TimeStep);
+        public unsafe HavokTriggerEvents TriggerEvents => new HavokTriggerEvents(TriggerEventsRange);
 
         // Input parameters for HP_StepWorld()
         [StructLayout(LayoutKind.Sequential)]
@@ -243,6 +236,11 @@ namespace Havok.Physics
                         Plugin.HP_StepWorld(simulationContext.WorldIndex, ref stepInput, simulationContext.StepContext);
                     }
 
+                    // Apply gravity and copy input velocities.
+                    // Note: Havok Physics doesn't "see" this gravity applied, but instead applies it on its own,
+                    // but we need the velocity with applied gravity for later calculations as input velocity.
+                    Solver.ApplyGravityAndCopyInputVelocities(world.MotionVelocities, simulationContext.InputVelocities, input.TimeStep * input.Gravity);
+
                     // Broadphase
                     Plugin.HP_ProcessStep(simulationContext.StepContext->broadphase);
 
@@ -254,11 +252,6 @@ namespace Havok.Physics
 
                     // Solve Jacobians and integrate
                     Plugin.HP_ProcessStep(simulationContext.StepContext->solverSolve);
-
-                    // Apply gravity and copy input velocities.
-                    // Note: Havok Physics doesn't "see" this gravity applied, but instead applies it on its own,
-                    // but we need the velocity with applied gravity for later calculations as input velocity.
-                    Solver.ApplyGravityAndCopyInputVelocities(world.MotionDatas, world.MotionVelocities, simulationContext.InputVelocities, input.TimeStep * input.Gravity);
                 }
             }
 
@@ -331,6 +324,11 @@ namespace Havok.Physics
             {
                 unsafe
                 {
+                    // Note: Havok Physics doesn't "see" this gravity applied, but instead applies it on its own,
+                    // but we need the velocity with applied gravity for later calculations as input velocity.
+                    var applyGravityAndCopyInputVelocitiesHandle = Solver.ScheduleApplyGravityAndCopyInputVelocitiesJob(
+                        world.DynamicsWorld.MotionVelocities, m_SimulationContext.InputVelocities, input.TimeStep * input.Gravity, handle, threadCountHint);
+
                     // Generate context for this step
                     handle = new StartStepJob
                     {
@@ -345,18 +343,15 @@ namespace Havok.Physics
                         StepContext = PhysicsStepContext
                     }.Schedule(handle);
 
+                    // Make sure applying of gravity is done before any callbacks
+                    handle = JobHandle.CombineDependencies(handle, applyGravityAndCopyInputVelocitiesHandle);
+
                     // Broad phase
                     if (callbacks.Any(SimulationCallbacks.Phase.PostCreateDispatchPairs))
                     {
                         handle = new StepJob(PhysicsStepContext, SimulationCallbacks.Phase.PostCreateDispatchPairs).Schedule(threadCountHint, 1, handle);
                         handle = callbacks.Execute(SimulationCallbacks.Phase.PostCreateDispatchPairs, this, ref world, handle);
                     }
-
-                    // Apply gravity and copy input velocities at any point before the end of the step.
-                    // Note: Havok Physics doesn't "see" this gravity applied, but instead applies it on its own,
-                    // but we need the velocity with applied gravity for later calculations as input velocity.
-                    var applyGravityAndCopyInputVelocitiesHandle = Solver.ScheduleApplyGravityAndCopyInputVelocitiesJob(
-                        ref world.DynamicsWorld, m_SimulationContext.InputVelocities, input.TimeStep * input.Gravity, handle, threadCountHint);
 
                     // Narrow phase
                     if (callbacks.Any(SimulationCallbacks.Phase.PostCreateContacts))
@@ -414,12 +409,6 @@ namespace Havok.Physics
 
             m_StepHandles = new SimulationJobHandles(handle);
             return m_StepHandles;
-        }
-
-        [Obsolete("ScheduleStepJobs() has been deprecated. Use the new ScheduleStepJobs method that takes callbacks and threadCountHint as input and returns SimulationStepHandles. (RemovedAfter 2020-05-01)")]
-        public void ScheduleStepJobs(SimulationStepInput input, JobHandle inputDeps)
-        {
-            m_StepHandles = ScheduleStepJobs(input, null, inputDeps, input.ThreadCountHint);
         }
 
         #region Jobs
@@ -502,8 +491,8 @@ namespace Havok.Physics
         {
             public int WorldIndex;
             public int BatchSize;
-            public NativeSlice<MotionData> MotionDatas;
-            public NativeSlice<MotionVelocity> MotionVelocities;
+            public NativeArray<MotionData> MotionDatas;
+            public NativeArray<MotionVelocity> MotionVelocities;
 
             public void Execute(int batchIndex)
             {

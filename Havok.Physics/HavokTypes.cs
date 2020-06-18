@@ -8,9 +8,17 @@
 #endif
 
 using System;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Mathematics;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using Unity.Mathematics;
+using UnityEngine.Assertions;
+#if !UNITY_ENTITIES_0_12_OR_NEWER
+using UnsafeUtility = Unity.Physics.UnsafeUtility;
+#else
+using Unity.Collections.LowLevel.Unsafe;
+#endif
+using NativeDisableUnsafePtrRestrictionAttribute = Unity.Collections.LowLevel.Unsafe.NativeDisableUnsafePtrRestrictionAttribute;
 
 namespace Havok.Physics
 {
@@ -24,12 +32,59 @@ namespace Havok.Physics
         }
     }
 
+    internal static class UnsafeEx
+    {
+        // Returns the memory offset (in bytes) between the specified pointer and referenced object
+        internal unsafe static int CalculateOffset<T>(void* value, ref T baseValue)
+            where T : struct
+        {
+            return (int)((byte*)value - (byte*)UnsafeUtility.AddressOf(ref baseValue));
+        }
+
+        // Fills the int array with offsets of specified type's fields, starting from specified index and updating the index after each write into array.
+        internal unsafe static void FillFieldOffsetsArray(Type typeContainingFields, List<KeyValuePair<string, bool>> fieldNamesAndAccess, int* fieldOffsets, ref int fieldIndex)
+        {
+            foreach (KeyValuePair<string, bool> fieldInfo in fieldNamesAndAccess)
+            {
+                if (fieldInfo.Value)
+                {
+                    fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeContainingFields.GetField(fieldInfo.Key));
+                }
+                else
+                {
+                    fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeContainingFields.GetField(fieldInfo.Key, BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+                }
+
+                fieldIndex++;
+            }
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HpIntArray
     {
         public int* Data;
         private int m_Size;
         private int m_Flags;
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            const int myFieldCount = 3;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpIntArray).GetField("Data"));
+            fieldIndex++;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpIntArray).GetField("m_Size", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpIntArray).GetField("m_Flags", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     }
 
     // A wrapper around Havok block streams (owned by the C++ plugin)
@@ -50,8 +105,38 @@ namespace Havok.Physics
             // 12 Bytes (1 + 11) of padding on 32bit platforms and no padding on 64bit (data starts immediately)
             private fixed byte m_DataStart64Bit[1];
             private fixed byte m_Padding32Bit[11];
-            public fixed byte m_DataStart32Bit[1];
+            private fixed byte m_DataStart32Bit[1];
 #pragma warning restore CS0169, CS0649
+
+            // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+            public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+            {
+                // List of (field name, isPublic) pairs
+                List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+                {
+                    new KeyValuePair<string, bool>("m_NumElementsAndBytesUsed", false),
+                    new KeyValuePair<string, bool>("m_BlockIndexInStream", false),
+                    new KeyValuePair<string, bool>("m_NextBlock", false),
+                    new KeyValuePair<string, bool>("m_AllocatorDebug", false),
+                    new KeyValuePair<string, bool>("m_BlockStreamDebug", false)
+                };
+
+                // We need to account for m_DataStart* separately
+                int myFieldCount = fieldNamesAndAccess.Count + 1;
+                if (startFrom + myFieldCount > fieldOffsetsLength)
+                    throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+                int fieldIndex = startFrom;
+                UnsafeEx.FillFieldOffsetsArray(typeof(Block), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+                // Handle m_DataStart* fields
+                Block temp = default;
+                fieldOffsets[fieldIndex] = UnsafeEx.CalculateOffset((void*)temp.Start(), ref temp);
+                fieldIndex++;
+
+                Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+                return fieldIndex;
+            }
 
             public int NumElements => (int)(m_NumElementsAndBytesUsed & 0xffff);
             public Block* Next => m_NextBlock;
@@ -94,6 +179,43 @@ namespace Havok.Physics
 
         // There's more fields of in-place array here, but we don't care about them
 #pragma warning restore CS0649, CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("m_Allocator", false),
+                new KeyValuePair<string, bool>("m_NumTotalElements", false),
+                new KeyValuePair<string, bool>("m_PartiallyFreed", false),
+                new KeyValuePair<string, bool>("m_IsLocked", false)
+            };
+
+            // We need to account for m_Data* separately
+            int myFieldCount = fieldNamesAndAccess.Count + 1;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpBlockStream), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpBlockStream).GetField("m_Data32Bit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            }
+            else
+            {
+                // 64bit
+                fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpBlockStream).GetField("m_Data64Bit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            }
+
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
 
         public bool HasElements => m_NumTotalElements != 0;
         public Block* FirstBlock()
@@ -164,7 +286,7 @@ namespace Havok.Physics
 
         public ref T Read<T>() where T : struct
         {
-            return ref UnsafeUtilityEx.AsRef<T>(ReadPtr<T>());
+            return ref UnsafeUtility.AsRef<T>(ReadPtr<T>());
         }
 
         unsafe public byte* ReadPtr<T>() where T : struct
@@ -205,7 +327,7 @@ namespace Havok.Physics
 
         public void Write<T>(T d) where T : struct
         {
-            ref T prev = ref UnsafeUtilityEx.AsRef<T>(m_LastPtr);
+            ref T prev = ref UnsafeUtility.AsRef<T>(m_LastPtr);
             prev = d;
         }
     }
@@ -221,6 +343,29 @@ namespace Havok.Physics
         ushort m_Padding;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("BodyIds", true),
+                new KeyValuePair<string, bool>("NumManifolds", true),
+                new KeyValuePair<string, bool>("m_CacheQualityFlags", false),
+                new KeyValuePair<string, bool>("m_Padding", false)
+            };
+
+            int myFieldCount = fieldNamesAndAccess.Count;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpManifoldStreamHeader), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     }
 
     // This struct contains fields from SDK's hknpManifold
@@ -259,6 +404,45 @@ namespace Havok.Physics
         internal fixed float m_Scratch[16];
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("NumPoints", true),
+                new KeyValuePair<string, bool>("m_MinimumDistance", false),
+                new KeyValuePair<string, bool>("Normal", true),
+                new KeyValuePair<string, bool>("m_WeldNormal", false),
+                new KeyValuePair<string, bool>("Distances", true),
+                new KeyValuePair<string, bool>("Positions", true),
+                new KeyValuePair<string, bool>("m_GskPosition", false),
+                new KeyValuePair<string, bool>("m_ManifoldType", true),
+                new KeyValuePair<string, bool>("m_UseIncreasedIterations", false),
+                new KeyValuePair<string, bool>("m_IsNewSurface", false),
+                new KeyValuePair<string, bool>("m_IsNewManifold", false),
+                new KeyValuePair<string, bool>("m_NumVerticesOfQuad", false),
+                new KeyValuePair<string, bool>("m_DataFields", true),
+                new KeyValuePair<string, bool>("m_AppliedWeldingTypes", false),
+                new KeyValuePair<string, bool>("m_CollisionCache", false),
+                new KeyValuePair<string, bool>("m_ShapeKeyA", false),
+                new KeyValuePair<string, bool>("m_ShapeKeyB", false),
+                new KeyValuePair<string, bool>("m_MaterialA", false),
+                new KeyValuePair<string, bool>("m_MaterialB", false),
+                new KeyValuePair<string, bool>("m_Scratch", false)
+            };
+
+            int myFieldCount = fieldNamesAndAccess.Count;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpManifold), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -286,6 +470,7 @@ namespace Havok.Physics
         }
     }
 
+    // This struct contains fields from SDK's hknpManifoldCollisionCache
     [StructLayout(LayoutKind.Sequential)]
     unsafe struct HPManifoldCollisionCache
     {
@@ -326,7 +511,7 @@ namespace Havok.Physics
         internal fixed byte m_padding0[2];
 
         // m_manifoldSolverInfo on 64bit 
-        public HPHalf m_frictionRhsMultiplier64Bit;
+        HPHalf m_frictionRhsMultiplier64Bit;
         ushort m_flags64Bit;
 
         // m_manifoldSolverInfo on 32bit is here, where we currently have automatic padding before m_impulsesApplied
@@ -338,6 +523,70 @@ namespace Havok.Physics
         public float4 m_integratedFrictionRhs;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("m_bodyPair", false),
+                new KeyValuePair<string, bool>("m_type", false),
+                new KeyValuePair<string, bool>("m_sizeDiv16", false),
+                new KeyValuePair<string, bool>("m_qualityFlags", false),
+                new KeyValuePair<string, bool>("m_linearTim", false),
+                new KeyValuePair<string, bool>("m_lodInfo", false),
+                new KeyValuePair<string, bool>("m_scratch", false),
+                new KeyValuePair<string, bool>("m_gskCache", false),
+                new KeyValuePair<string, bool>("m_propertyKeysUsed", false),
+                new KeyValuePair<string, bool>("m_shapeBMaterialId", false),
+                new KeyValuePair<string, bool>("m_separatingNormal", false),
+                new KeyValuePair<string, bool>("m_propertiesStartOffsetDiv16", true),
+                new KeyValuePair<string, bool>("m_propertyOffsets", true),
+                new KeyValuePair<string, bool>("m_contactJacobianBlock", false),
+                new KeyValuePair<string, bool>("m_contactJacobianOffset", false),
+                new KeyValuePair<string, bool>("m_fractionOfClippedImpulseToApply", false),
+                new KeyValuePair<string, bool>("m_numContactPoints", false),
+                new KeyValuePair<string, bool>("m_collisionFlags", true),
+                new KeyValuePair<string, bool>("m_friction", true),
+                new KeyValuePair<string, bool>("m_extraStaticFriction", false),
+                new KeyValuePair<string, bool>("m_restitution", true),
+                new KeyValuePair<string, bool>("m_maxImpulse", true),
+                new KeyValuePair<string, bool>("m_maximumPenetration", true),
+                new KeyValuePair<string, bool>("m_padding0", false),
+                // m_manifoldSolverInfo will be handled separately at the end
+                new KeyValuePair<string, bool>("m_impulsesApplied", false),
+                new KeyValuePair<string, bool>("m_allowedInitialPenetrations", false),
+                new KeyValuePair<string, bool>("m_constraintBiases", false),
+                new KeyValuePair<string, bool>("m_integratedFrictionRhs", true)
+            };
+
+            // Account for m_manifoldSolverInfo, which is handled separately
+            int myFieldCount = fieldNamesAndAccess.Count + 1;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HPManifoldCollisionCache), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            // Handle m_manifoldSolverInfo
+            if (BuildPlatformUtil.is32Bit())
+            {
+                // 32bit
+                HPManifoldCollisionCache temp = default;
+                fieldOffsets[fieldIndex] = UnsafeEx.CalculateOffset((void*)temp.accessFrictionRhsMultiplier32Bit(), ref temp);
+            }
+            else
+            {
+                // 64bit
+                fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HPManifoldCollisionCache).GetField("m_frictionRhsMultiplier64Bit", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            }
+
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
 
         public float getFrictionRhsMultiplierValue()
         {
@@ -457,6 +706,23 @@ namespace Havok.Physics
         internal float4 m_angular1;
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            const int myFieldCount = 2;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpJacAngular).GetField("m_angular0", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpJacAngular).GetField("m_angular1", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     };
 
     [StructLayout(LayoutKind.Sequential)]
@@ -476,6 +742,34 @@ namespace Havok.Physics
         fixed byte m_buffer[16];
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("m_jacDir0_linear0", true),
+                new KeyValuePair<string, bool>("m_jacDir0_angular0", true),
+                new KeyValuePair<string, bool>("m_jacDir0_angular1", true),
+                new KeyValuePair<string, bool>("m_jacDir1_linear0", true),
+                new KeyValuePair<string, bool>("m_jacDir1_angular0", true),
+                new KeyValuePair<string, bool>("m_jacDir1_angular1", true),
+                new KeyValuePair<string, bool>("m_jacAng_angular0", true),
+                new KeyValuePair<string, bool>("m_jacAng_angular1", true),
+                new KeyValuePair<string, bool>("m_buffer", false)
+            };
+
+            int myFieldCount = fieldNamesAndAccess.Count;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpJac3dFriction), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     };
 
     [StructLayout(LayoutKind.Sequential)]
@@ -521,6 +815,39 @@ namespace Havok.Physics
         fixed ushort m_normalDotArm[4];
 #pragma warning restore CS0649
 #pragma warning restore CS0169
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // List of (field name, isPublic) pairs
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                // Need to skip m_flagsAndDimB, since it's a bitfield in C++ and can't be verified
+                new KeyValuePair<string, bool>("m_sizeDiv16", true),
+                new KeyValuePair<string, bool>("m_numPoints", false),
+                new KeyValuePair<string, bool>("m_modTypes", false),
+                new KeyValuePair<string, bool>("m_manifoldType", false),
+                new KeyValuePair<string, bool>("m_clipMode", false),
+                new KeyValuePair<string, bool>("m_clipImpulseFraction", false),
+                new KeyValuePair<string, bool>("m_bodyIdA", false),
+                new KeyValuePair<string, bool>("m_bodyIdB", false),
+                new KeyValuePair<string, bool>("m_normal", false),
+                new KeyValuePair<string, bool>("m_manifoldCollisionCache", false),
+                new KeyValuePair<string, bool>("m_solverVelIdAB", false),
+                new KeyValuePair<string, bool>("m_referenceOrientation", false),
+                new KeyValuePair<string, bool>("m_normalDotArm", false),
+            };
+
+            int myFieldCount = fieldNamesAndAccess.Count;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpJacHeader), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
 
         enum ModifierType
         {
@@ -615,6 +942,7 @@ namespace Havok.Physics
         }
     };
 
+    // This struct doesn't really exist in SDK, it's how we interpret free-form properties referenced from hknpManifoldCollisionCache
     [StructLayout(LayoutKind.Sequential)]
     struct HpPerManifoldProperty
     {
@@ -638,7 +966,7 @@ namespace Havok.Physics
         internal ushort m_startByteOffset;
         internal ushort m_startBlockNumElements;
         internal int m_numElements;
-    }
+    };
 
     // This struct contains fields from SDK's hkBlockStream::LinkedRange
 #if HK_IS_MSVC
@@ -676,6 +1004,40 @@ namespace Havok.Physics
         fixed byte m_padding0[3];
         int m_solveStateBytes;
 #pragma warning restore CS0649
+
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            const int myFieldCount = 7;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            // HpBlockStreamRange fields
+            List<KeyValuePair<string, bool>> fieldNamesAndAccess = new List<KeyValuePair<string, bool>>()
+            {
+                new KeyValuePair<string, bool>("m_block", false),
+                new KeyValuePair<string, bool>("m_startByteOffset", false),
+                new KeyValuePair<string, bool>("m_startBlockNumElements", false),
+                new KeyValuePair<string, bool>("m_numElements", false)
+            };
+
+            // Just fill in offsets of HpBlockStreamRange fields, since m_range.m_blockStreamRange is at offset 0
+            int fieldIndex = startFrom;
+            UnsafeEx.FillFieldOffsetsArray(typeof(HpBlockStreamRange), fieldNamesAndAccess, fieldOffsets, ref fieldIndex);
+
+            // Add offset of m_range.m_next, since m_range is the first field in this struct
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpLinkedRange).GetField("m_next", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+
+            // Now add offset of the other 2 fields in this struct (m_padding0 is not important)
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpCsContactJacRange).GetField("m_solverId", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpCsContactJacRange).GetField("m_solveStateBytes", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     };
 
     // This struct contains fields from SDK's hknpCsGrid that are important for HavokPhysics
@@ -688,8 +1050,23 @@ namespace Havok.Physics
         internal int m_size;
 
         // We don't care about hknpGrid::m_lastEntries
+        // We don't care about the following hknpCsGrid fields: m_occupancy, m_tempsSize, m_tempsBuffer, m_tempsBufferSize
 #pragma warning restore CS0649
 
-        // We don't care about the following hknpCsGrid fields: m_occupancy, m_tempsSize, m_tempsBuffer, m_tempsBufferSize
+        // Fills the specified array (given as pointer and length) with offsets of this struct's fields that need to be in sync with plugin struct fields.
+        public unsafe static int FillFieldOffsetsArray(int startFrom, int* fieldOffsets, int fieldOffsetsLength)
+        {
+            // m_entries and m_size are members of 1 field in C++ (hknpGrid::m_entries), so we can only send offset of m_entries
+            const int myFieldCount = 1;
+            if (startFrom + myFieldCount > fieldOffsetsLength)
+                throw new ArgumentException($"{nameof(fieldOffsets)} (length {fieldOffsetsLength}) is not big enough for all {myFieldCount} fields of this struct (starting from {startFrom})!");
+
+            int fieldIndex = startFrom;
+            fieldOffsets[fieldIndex] = UnsafeUtility.GetFieldOffset(typeof(HpGrid).GetField("m_entries", BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance));
+            fieldIndex++;
+
+            Assert.AreEqual(myFieldCount, fieldIndex - startFrom);
+            return fieldIndex;
+        }
     };
 }

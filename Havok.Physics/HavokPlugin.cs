@@ -1,10 +1,13 @@
 using System;
 using System.Runtime.InteropServices;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Physics;
-using UnityEngine.Assertions;
+#if !UNITY_ENTITIES_0_12_OR_NEWER
+using UnsafeUtility = Unity.Physics.UnsafeUtility;
+#else
+using Unity.Collections.LowLevel.Unsafe;
+#endif
 
 namespace Havok.Physics
 {
@@ -70,6 +73,14 @@ namespace Havok.Physics
         {
             public ulong m_numTypes;
             public fixed ulong m_typeCheckValues[6];
+
+            // Field offsets we're sending to plugin. Keep up to date with actual usage and C++ plugin!
+            public const int fieldOffsetsLength = 99;
+            public fixed int m_fieldOffsets[fieldOffsetsLength];
+
+            // Struct sizes we're sending to plugin. Keep up to date with actual usage and C++ plugin!
+            public const int structSizesLength = 9;
+            public fixed int m_structSizes[structSizesLength];
         }
 
         // Information about a user
@@ -498,6 +509,34 @@ namespace Havok.Physics
                     typeHashes.m_typeCheckValues[3] = TypeHasher.CalculateTypeCheckValue(typeof(HavokSimulation.Task));
                     typeHashes.m_typeCheckValues[4] = TypeHasher.CalculateTypeCheckValue(typeof(AuthInfo));
                     typeHashes.m_typeCheckValues[5] = TypeHasher.CalculateTypeCheckValue(typeof(Material));
+
+                    // Populate struct sizes and field offsets
+                    int fieldOffsetIndex = 0;
+                    int structSizeIndex = 0;
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpIntArray);
+                    fieldOffsetIndex = HpIntArray.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    // We don't care about sizes of HpBlockStream and HpBlockStream.Block
+                    fieldOffsetIndex = HpBlockStream.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    fieldOffsetIndex = HpBlockStream.Block.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpManifoldStreamHeader);
+                    fieldOffsetIndex = HpManifoldStreamHeader.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpManifold);
+                    fieldOffsetIndex = HpManifold.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HPManifoldCollisionCache);
+                    fieldOffsetIndex = HPManifoldCollisionCache.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpJacAngular);
+                    fieldOffsetIndex = HpJacAngular.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpJac3dFriction);
+                    fieldOffsetIndex = HpJac3dFriction.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);                    
+                    // Only size is important for HpJacModHeader (fields are not used)
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpJacModHeader);
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpJacHeader);
+                    fieldOffsetIndex = HpJacHeader.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    // HpCsContactJacRange also covers HpLinkedRange and HpBlockStreamRange
+                    typeHashes.m_structSizes[structSizeIndex++] = sizeof(HpCsContactJacRange);
+                    fieldOffsetIndex = HpCsContactJacRange.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
+                    // We don't care about the size of HpGrid
+                    fieldOffsetIndex = HpGrid.FillFieldOffsetsArray(fieldOffsetIndex, typeHashes.m_fieldOffsets, TypeCheckInformation.fieldOffsetsLength);
 
                     bool isCompatible = false;
                     try

@@ -54,8 +54,8 @@ namespace Unity.Physics
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpGrid* FixedJacobianGrid;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpGrid* MovingJacobianGrid;
             [NativeDisableUnsafePtrRestriction] public Havok.Physics.HpIntArray* PluginIndexToLocal;
-            // Disable aliasing restriction in case T has a NativeSlice of PhysicsWorld.Bodies
-            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeSlice<RigidBody> Bodies;
+            // Disable aliasing restriction in case T has a NativeArray of PhysicsWorld.Bodies
+            [ReadOnly, NativeDisableContainerSafetyRestriction] public NativeArray<RigidBody> Bodies;
 
             public float TimeStep;
         };
@@ -109,11 +109,11 @@ namespace Unity.Physics
 
                                 modifiableHeader.m_Header->BodyPair = new BodyIndexPair
                                 {
-                                    BodyAIndex = bodyIndexA,
-                                    BodyBIndex = bodyIndexB
+                                    BodyIndexA = bodyIndexA,
+                                    BodyIndexB = bodyIndexB
                                 };
 
-                                modifiableHeader.Entities = new EntityPair
+                                modifiableHeader.EntityPair = new EntityPair
                                 {
                                     EntityA = jobData.Bodies[bodyIndexA].Entity,
                                     EntityB = jobData.Bodies[bodyIndexB].Entity
