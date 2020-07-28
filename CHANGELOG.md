@@ -1,6 +1,16 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.3.1-preview] - 2020-07-28
+
+### Changed
+- All systems now inherit `SystemBase` instead of `ComponentSystem`.
+
+### Fixed
+- Fixed a crash when `TerrainCollider` uses `CollisionMethod.Triangles`.
+- Fixed a bug where Havok Physics plugin did not gracefully handle invalid Joints (e.g. when both Entities are Null).
+- Fixed an editor crash when maximum level of composite collider nesting is breached.
+
 ## [0.3.0-preview.1] - 2020-06-18
 
 ### Changed

@@ -15,8 +15,8 @@ namespace Havok.Physics
 {
     // Registers the Havok simulation as an option in StepPhysicsWorld
     // TODO: Is there a better way to do this registration?
-    [UpdateBefore(typeof(Unity.Physics.Systems.StepPhysicsWorld))]
-    public class RegisterHavok : ComponentSystem
+    [UpdateBefore(typeof(Unity.Physics.Systems.StepPhysicsWorld)), AlwaysUpdateSystem]
+    public class RegisterHavok : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -40,6 +40,11 @@ namespace Havok.Physics
         internal readonly int WorldIndex;
         internal readonly bool VisualDebuggerEnabled;
 
+        /// <summary>
+        /// Denotes that the world with WorldIndex was allocated (in the constructor) and WorldIndex is not 0 just by default
+        /// </summary>
+        private readonly bool m_WorldAllocated;
+
         public SimulationContext(HavokConfiguration config)
         {
             // Unlock the plugin if it hasn't already been done.
@@ -59,6 +64,7 @@ namespace Havok.Physics
 
                 VisualDebuggerEnabled = config.VisualDebugger.Enable != 0;
                 WorldIndex = Plugin.HP_AllocateWorld(ref config, StepContext);
+                m_WorldAllocated = true;
             }
         }
 
@@ -91,6 +97,12 @@ namespace Havok.Physics
 
         public void Dispose()
         {
+            if (m_WorldAllocated)
+            {
+                // Destroy world only if it was allocated
+                Plugin.HP_DestroyWorld(WorldIndex);
+            }
+
             if (InputVelocities.IsCreated)
             {
                 InputVelocities.Dispose();
@@ -186,8 +198,6 @@ namespace Havok.Physics
 
         public void Dispose()
         {
-            Plugin.HP_DestroyWorld(WorldIndex);
-
             m_SimulationContext.Dispose();
         }
 

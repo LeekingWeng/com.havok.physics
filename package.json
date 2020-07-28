@@ -8,7 +8,7 @@
     "com.unity.collections": "0.9.0-preview.6",
     "com.unity.entities": "0.11.1-preview.4",
     "com.unity.jobs": "0.2.10-preview.12",
-    "com.unity.physics": "0.4.0-preview.5",
+    "com.unity.physics": "0.4.1-preview",
     "com.unity.test-framework": "1.1.11"
   },
   "keywords": [
@@ -18,13 +18,13 @@
   "name": "com.havok.physics",
   "unity": "2019.4",
   "unityRelease": "0f1",
-  "version": "0.3.0-preview.1",
+  "version": "0.3.1-preview",
   "upmCi": {
-    "footprint": "8211ff6baa42e82751d4278b31d574abba649990"
+    "footprint": "2beda68e500b6b4ff4be01bbde941a70c2cdd874"
   },
   "repository": {
     "url": "https://github.com/Unity-Technologies/Unity.Physics.git",
     "type": "git",
-    "revision": "5b84e9fb6a4f7f152f671aec08554b3106d711c1"
+    "revision": "c96a366de0bfeca237d52699d877b1a2cfb7496f"
   }
 }
