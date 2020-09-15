@@ -6,7 +6,6 @@ namespace Havok.Physics.Authoring
 {
     [AddComponentMenu("DOTS/Physics/Havok Physics Configuration")]
     [DisallowMultipleComponent]
-    [RequiresEntityConversion]
     public class HavokConfigurationAuthoring : MonoBehaviour, IConvertGameObjectToEntity
     {
         [SerializeField]

@@ -1,6 +1,20 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.4.0-preview.1] - 2020-09-15
+
+### Changed
+- Updated minimum Unity Editor version from `2019.4.0f1` to `2020.1.0f1`
+- [UNI-233] Havok plugin is now based on 2020.1 version of Havok SDK
+- [UNI-29] Added `HavokSimulation.SetStaticBodiesChangedFlag(NativeArray<int>)`. This sets the `HaveStaticBodiesChanged` in SimulationContext. This should only be used when `HavokSimulation` is created manually, as it is happening by default when the simulation is created in a standard way, using BuildPhysicsWorld and StepPhysicsWorld.
+- [UNI-29] Added `HavokSimulation.SimulationContext.HaveStaticBodiesChanged`. This member can be used to speed up static body synchronization on C++ side. It is a `NativeArray<int>` of size 1, and if `HaveStaticBodiesChanged[0] == 1`, static body sync will happen, otherwise it won't. This should only be used when using `HavokSimulation.StepImmediate()`, use HavokSimulation.SetStaticBodiesChangedFlag() otherwise.
+
+### Fixed
+- [UNI-29] Improved performance of Havok Physics synchronization (static bodies are no longer needlessly synced every frame)
+- [UNI-232] Reduced size of compound collider/mesh collider AABB in cases where their bodies are rotated by some angle.
+- [UNI-241] Fixed a potential issue where events were skipped when happening in multiple parts of the scene, where each part contains both dynamic-dynamic events and dynamic-static events.
+- [UNI-247] Fixed no activation in reaction to filter change in the same frame the body gets removed.
+
 ## [0.3.1-preview] - 2020-07-28
 
 ### Changed

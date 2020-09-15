@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Unity.Assertions;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -7,23 +8,24 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Physics;
-#if !UNITY_ENTITIES_0_12_OR_NEWER
-using UnsafeUtility = Unity.Physics.UnsafeUtility;
-#endif
+using Unity.Physics.Systems;
 
 namespace Havok.Physics
 {
     // Registers the Havok simulation as an option in StepPhysicsWorld
     // TODO: Is there a better way to do this registration?
-    [UpdateBefore(typeof(Unity.Physics.Systems.StepPhysicsWorld)), AlwaysUpdateSystem]
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+    [AlwaysUpdateSystem]
     public class RegisterHavok : SystemBase
     {
         protected override void OnUpdate()
         {
-            World.GetExistingSystem<Unity.Physics.Systems.StepPhysicsWorld>().RegisterSimulation(SimulationType.HavokPhysics, () =>
+            World.GetExistingSystem<StepPhysicsWorld>().RegisterSimulation(SimulationType.HavokPhysics, () =>
             {
                 HavokConfiguration config = HasSingleton<HavokConfiguration>() ? GetSingleton<HavokConfiguration>() : HavokConfiguration.Default;
-                return new HavokSimulation(config);
+                var simulation = new HavokSimulation(config);
+                simulation.SetStaticBodiesChangedFlag(World.GetExistingSystem<BuildPhysicsWorld>().HaveStaticBodiesChanged);
+                return simulation;
             });
         }
     }
@@ -39,6 +41,19 @@ namespace Havok.Physics
 
         internal readonly int WorldIndex;
         internal readonly bool VisualDebuggerEnabled;
+
+        // Internal flag used only once to force static bodies to sync, even if they haven't changed.
+        // This is used in the first frame of simulation, in order to properly set up data on C++ side
+        internal bool StaticBodiesSyncedOnce;
+
+        /// <summary>
+        /// This array of size 1 optimizes the speed of static body synchronization.
+        /// If HaveStaticBodiesChanged[0] == 1, the static body sync will happen, otherwise it won't
+        /// </summary>
+        // [NativeDisableContainerSafetyRestriction] is used because HaveStaticBodiesChanged can have default value,
+        // and is just a workaround for not allocating and managing the array that we would have to create.
+        [NativeDisableContainerSafetyRestriction]
+        public NativeArray<int> HaveStaticBodiesChanged;
 
         /// <summary>
         /// Denotes that the world with WorldIndex was allocated (in the constructor) and WorldIndex is not 0 just by default
@@ -66,6 +81,9 @@ namespace Havok.Physics
                 WorldIndex = Plugin.HP_AllocateWorld(ref config, StepContext);
                 m_WorldAllocated = true;
             }
+
+            HaveStaticBodiesChanged = default;
+            StaticBodiesSyncedOnce = false;
         }
 
         public void Reset(ref PhysicsWorld world, UnityEngine.Camera camera = null)
@@ -141,6 +159,16 @@ namespace Havok.Physics
         public unsafe HavokCollisionEvents CollisionEvents => new HavokCollisionEvents(CollisionEventsRange, m_SimulationContext.InputVelocities, TimeStep);
         public unsafe HavokTriggerEvents TriggerEvents => new HavokTriggerEvents(TriggerEventsRange);
 
+        /// <summary>
+        /// Sets the HaveStaticBodiesChanged in HavokSimulation.SimulationContext.
+        /// See HavokSimulation.SimulationContext.HaveStaticBodiesChanged for detailed explanation.
+        /// </summary>
+        public void SetStaticBodiesChangedFlag(NativeArray<int> haveStaticBodiesChanged)
+        {
+            Assert.IsTrue(haveStaticBodiesChanged.Length == 1);
+            m_SimulationContext.HaveStaticBodiesChanged = haveStaticBodiesChanged;
+        }
+
         // Input parameters for HP_StepWorld()
         [StructLayout(LayoutKind.Sequential)]
         internal struct StepInput
@@ -213,6 +241,9 @@ namespace Havok.Physics
                 return;
             }
 
+            bool syncStaticBodies = !simulationContext.StaticBodiesSyncedOnce || simulationContext.HaveStaticBodiesChanged == default
+                || simulationContext.HaveStaticBodiesChanged[0] == 1;
+
             // Sync the world
             unsafe
             {
@@ -226,7 +257,12 @@ namespace Havok.Physics
                     bodies, world.NumBodies, UnsafeUtility.SizeOf<RigidBody>(),
                     motionDatas, world.NumDynamicBodies, sizeof(MotionData),
                     motionVelocities, world.NumDynamicBodies, sizeof(MotionVelocity),
-                    joints, world.NumJoints, UnsafeUtility.SizeOf<Joint>());
+                    joints, world.NumJoints, UnsafeUtility.SizeOf<Joint>(), syncStaticBodies);
+            }
+
+            if (!simulationContext.StaticBodiesSyncedOnce)
+            {
+                simulationContext.StaticBodiesSyncedOnce = true;
             }
 
             // Step the simulation
@@ -320,12 +356,18 @@ namespace Havok.Physics
                 return m_StepHandles;
             }
 
-            // Synchronize the Havok Physics world with the current Unity Physics world
             JobHandle handle = new SyncJob
             {
                 World = world,
-                WorldIndex = WorldIndex
+                WorldIndex = WorldIndex,
+                ForceStaticBodySync = m_SimulationContext.StaticBodiesSyncedOnce? 0 : 1,
+                HaveStaticBodiesChanged = m_SimulationContext.HaveStaticBodiesChanged
             }.Schedule(inputDeps);
+
+            if (!m_SimulationContext.StaticBodiesSyncedOnce)
+            {
+                m_SimulationContext.StaticBodiesSyncedOnce = true;
+            }
 
             SimulationCallbacks callbacks = callbacksIn ?? new SimulationCallbacks();
 
@@ -431,6 +473,13 @@ namespace Havok.Physics
             public int WorldIndex;
             [ReadOnly] public PhysicsWorld World;
 
+            public int ForceStaticBodySync;
+
+            // HaveStaticBodiesChanged can have default value, in which case we are not accessing it.
+            // That's why we have [NativeDisableContainerSafetyRestriction]
+            [NativeDisableContainerSafetyRestriction]
+            [ReadOnly] public NativeArray<int> HaveStaticBodiesChanged;
+
             public unsafe void Execute()
             {
                 var bodies = World.Bodies.GetUnsafeReadOnlyPtr();
@@ -443,7 +492,8 @@ namespace Havok.Physics
                     bodies, World.NumBodies, UnsafeUtility.SizeOf<RigidBody>(),
                     motionDatas, World.NumDynamicBodies, sizeof(MotionData),
                     motionVelocities, World.NumDynamicBodies, sizeof(MotionVelocity),
-                    joints, World.NumJoints, UnsafeUtility.SizeOf<Joint>());
+                    joints, World.NumJoints, UnsafeUtility.SizeOf<Joint>(),
+                    ForceStaticBodySync == 1 || HaveStaticBodiesChanged == default ||  HaveStaticBodiesChanged[0] == 1);
             }
         }
 

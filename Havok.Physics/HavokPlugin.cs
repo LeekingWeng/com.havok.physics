@@ -1,13 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Physics;
-#if !UNITY_ENTITIES_0_12_OR_NEWER
-using UnsafeUtility = Unity.Physics.UnsafeUtility;
-#else
-using Unity.Collections.LowLevel.Unsafe;
-#endif
 
 namespace Havok.Physics
 {
@@ -51,7 +47,7 @@ namespace Havok.Physics
             void* rigidBodies, int numRigidBodies, int rigidBodyStride,
             MotionData* motionDatas, int numMotionDatas, int motionDataStride,
             MotionVelocity* motionVelocities, int numMotionVelocities, int motionVelocityStride,
-            void* joints, int numJoints, int jointStride);
+            void* joints, int numJoints, int jointStride, bool haveStaticBodiesChanged);
         [DllImport(k_DllPath)]
         internal static extern unsafe void HP_SyncMotionsOut(
             int worldIndex,

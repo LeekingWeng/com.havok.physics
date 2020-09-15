@@ -11,14 +11,9 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine.Assertions;
-#if !UNITY_ENTITIES_0_12_OR_NEWER
-using UnsafeUtility = Unity.Physics.UnsafeUtility;
-#else
-using Unity.Collections.LowLevel.Unsafe;
-#endif
-using NativeDisableUnsafePtrRestrictionAttribute = Unity.Collections.LowLevel.Unsafe.NativeDisableUnsafePtrRestrictionAttribute;
 
 namespace Havok.Physics
 {
